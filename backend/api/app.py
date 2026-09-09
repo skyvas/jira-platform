@@ -6,8 +6,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from backend.api.routes import router
+from backend.services.postgres_repository import get_database_url
 
 app = FastAPI(title="Orbit API", version="1.0.0")
+
+app.state.database_url = get_database_url()
 
 app.add_middleware(
     CORSMiddleware,
