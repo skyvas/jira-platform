@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  python-app-and-playwright-smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: jira_platform
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d jira_platform"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jira_platform
+      POSTGRES_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jira_platform
+      POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/jira_platform
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Install Playwright Chromium
+        run: |
+          python -m playwright install chromium
+
+      - name: Start FastAPI app locally
+        run: |
+          python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+          echo $! > server.pid
+          python - <<'PY'
+          import time
+          import urllib.request
+
+          url = 'http://127.0.0.1:8000/'
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with urllib.request.urlopen(url, timeout=2) as response:
+                      if response.status == 200:
+                          print('server ready')
+                          raise SystemExit(0)
+              except Exception:
+                  time.sleep(1)
+          raise SystemExit('server did not become ready')
+          PY
+
+      - name: Run Playwright smoke tests
+        run: |
+          pytest -q tests/test_playwright_smoke.py
+
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          echo "---- uvicorn server log ----"
+          cat server.log || true

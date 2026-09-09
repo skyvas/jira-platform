@@ -11,4 +11,9 @@
 
 ## 3. Memory & Consolidation Directives
 - Read architectural constants from `.memory/architecture.md` prior to planning.
+- Update `.memory/architecture.md` when introducing new architectural constants, data models, or auth boundaries.
 - Document any verified edge-case fixes into `.memory/failure-patterns.md`.
+- Record new engineering standards and coding conventions into `.memory/conventions.md`.
+
+## 4. Active Distilled Rules (From Dreaming Engine)
+- No active failure pattern overrides.

@@ -19,7 +19,7 @@ The repository is natively integrated with the **AgentGraph** autonomous orchest
 
 ## 🛠️ Tech Stack
 
-- **Backend**: Python 3.9+ with FastAPI, SQLite/SQLAlchemy, and Pydantic.
+- **Backend**: Python 3.9+ with FastAPI, PostgreSQL-ready persistence adapter, and Pydantic; the repository supports a Postgres `DATABASE_URL`
 - **Frontend**: Glassmorphic dark-mode web application.
 - **Autonomous Engine**: AgentGraph (DAG scheduler, Git worktrees, pristine verifier, dreaming engine).
 - **Testing**: Pytest suites with strict binary verification gates.

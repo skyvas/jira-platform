@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbit // Enterprise Agile & Kanban OS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=4">
+</head>
+<body>
+
+  <!-- ==================== 1. DEDICATED LOGIN VIEW ==================== -->
+  <div class="fullscreen-view" id="login-view" style="display: none;">
+    <div class="auth-card-container">
+      <div class="auth-brand">
+        <div class="orbit-logo-container large">
+          <svg class="orbit-svg" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="orbitPlanetLg" x1="6" y1="6" x2="38" y2="38" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#818cf8"/>
+                <stop offset="50%" stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#06b6d4"/>
+              </linearGradient>
+              <linearGradient id="orbitRing1Lg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#38bdf8"/>
+                <stop offset="70%" stop-color="#a855f7"/>
+                <stop offset="100%" stop-color="#ec4899"/>
+              </linearGradient>
+              <linearGradient id="orbitRing2Lg" x1="44" y1="0" x2="0" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#6366f1" stop-opacity="0.9"/>
+                <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.3"/>
+              </linearGradient>
+              <filter id="orbitGlowLg" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="1.8" result="blur"/>
+                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+              </filter>
+            </defs>
+            <ellipse class="orbit-ring-outer" cx="22" cy="22" rx="19" ry="6.5" stroke="url(#orbitRing2Lg)" stroke-width="1.2" stroke-dasharray="3 2" transform="rotate(-40 22 22)" />
+            <g class="orbit-rotator">
+              <ellipse cx="22" cy="22" rx="18" ry="7" stroke="url(#orbitRing1Lg)" stroke-width="2" stroke-linecap="round" transform="rotate(25 22 22)" filter="url(#orbitGlowLg)" />
+              <circle class="orbit-satellite" cx="39.5" cy="22" r="2.8" fill="#38bdf8" filter="url(#orbitGlowLg)" transform="rotate(25 22 22)" />
+            </g>
+            <circle cx="22" cy="22" r="9.5" fill="url(#orbitPlanetLg)" filter="url(#orbitGlowLg)" />
+            <circle cx="20" cy="20" r="8" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="0.8" />
+            <circle cx="18.5" cy="18" r="2.8" fill="rgba(255,255,255,0.5)" />
+          </svg>
+        </div>
+        <h1 class="auth-title">Orbit</h1>
+        <p class="auth-subtitle">Enterprise Agile, Multiple Sprints & Kanban Platform</p>
+      </div>
+
+      <div class="auth-box">
+        <h2 class="auth-heading">Sign In</h2>
+        <p class="auth-desc">Enter your credentials to access your project boards</p>
+
+        <div id="login-error-alert" class="alert-error" style="display: none;">
+          <svg class="svg-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          <span id="login-error-text">Invalid username or password</span>
+        </div>
+
+        <form id="standalone-login-form">
+          <div class="form-group">
+            <label for="standalone-username">Username</label>
+            <div class="input-with-icon">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              <input type="text" id="standalone-username" required placeholder="admin, alex, or sam" autocomplete="username">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="standalone-password">Password</label>
+            <div class="input-with-icon">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              <input type="password" id="standalone-password" required placeholder="Enter password" autocomplete="current-password">
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-standalone-signin">
+            <span>Sign In to Workspace</span>
+            <svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+          </button>
+        </form>
+
+        <div class="quick-demo-section">
+          <div class="quick-demo-label">Quick Sign-in:</div>
+          <div class="quick-demo-grid">
+            <button type="button" class="demo-chip-btn" data-user="admin" data-pwd="admin123">
+              <span class="role-badge role-ADMIN">ADMIN</span>
+              <span class="demo-name">admin / admin123</span>
+            </button>
+            <button type="button" class="demo-chip-btn" data-user="alex" data-pwd="alex123">
+              <span class="role-badge role-MEMBER">MEMBER</span>
+              <span class="demo-name">alex / alex123</span>
+            </button>
+            <button type="button" class="demo-chip-btn" data-user="sam" data-pwd="sam123">
+              <span class="role-badge role-VIEWER">VIEWER</span>
+              <span class="demo-name">sam / sam123</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="auth-footer-note">
+          <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span>Encrypted Session • Automatic Session Revocation</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 2. DEDICATED POST-LOGOUT VIEW ==================== -->
+  <div class="fullscreen-view" id="logout-view" style="display: none;">
+    <div class="logout-card-container">
+      <div class="logout-icon-glow">
+        <svg class="svg-icon-xl" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+      </div>
+      <h2 class="logout-title">You Have Been Successfully Logged Out</h2>
+      <p class="logout-desc">
+        Your authentication session has been completely invalidated. All session tokens, cookies, and cached project data have been purged from this browser.
+      </p>
+      <div class="logout-details-box">
+        <div class="security-item">
+          <svg class="svg-icon-sm check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Session cookie strictly deleted</span>
+        </div>
+        <div class="security-item">
+          <svg class="svg-icon-sm check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Server session invalidated</span>
+        </div>
+        <div class="security-item">
+          <svg class="svg-icon-sm check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Project & Kanban data cleared</span>
+        </div>
+      </div>
+      <div class="logout-actions">
+        <button type="button" class="btn btn-primary btn-lg" id="btn-return-login">
+          <svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+          <span>Return to Sign In</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 3. MAIN AUTHENTICATED WORKSPACE VIEW ==================== -->
+  <div class="app-container" id="app-view" style="display: none;">
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="orbit-logo-container">
+          <svg class="orbit-svg" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="orbitPlanetNav" x1="6" y1="6" x2="38" y2="38" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#818cf8"/>
+                <stop offset="50%" stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#06b6d4"/>
+              </linearGradient>
+              <linearGradient id="orbitRing1Nav" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#38bdf8"/>
+                <stop offset="70%" stop-color="#a855f7"/>
+                <stop offset="100%" stop-color="#ec4899"/>
+              </linearGradient>
+              <linearGradient id="orbitRing2Nav" x1="44" y1="0" x2="0" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#6366f1" stop-opacity="0.9"/>
+                <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.3"/>
+              </linearGradient>
+              <filter id="orbitGlowNav" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="1.6" result="blur"/>
+                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+              </filter>
+            </defs>
+            <ellipse class="orbit-ring-outer" cx="22" cy="22" rx="19" ry="6.5" stroke="url(#orbitRing2Nav)" stroke-width="1.2" stroke-dasharray="3 2" transform="rotate(-40 22 22)" />
+            <g class="orbit-rotator">
+              <ellipse cx="22" cy="22" rx="18" ry="7" stroke="url(#orbitRing1Nav)" stroke-width="2" stroke-linecap="round" transform="rotate(25 22 22)" filter="url(#orbitGlowNav)" />
+              <circle class="orbit-satellite" cx="39.5" cy="22" r="2.8" fill="#38bdf8" filter="url(#orbitGlowNav)" transform="rotate(25 22 22)" />
+            </g>
+            <circle cx="22" cy="22" r="9.5" fill="url(#orbitPlanetNav)" filter="url(#orbitGlowNav)" />
+            <circle cx="20" cy="20" r="8" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="0.8" />
+            <circle cx="18.5" cy="18" r="2.8" fill="rgba(255,255,255,0.5)" />
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">Orbit</span>
+        </div>
+      </div>
+
+      <div class="nav-center">
+        <!-- Multi-Project Switcher -->
+        <div class="nav-control-group">
+          <span class="control-label">Project:</span>
+          <select id="project-select" class="nav-select">
+            <!-- Populated dynamically -->
+          </select>
+          <button class="btn btn-xs btn-subtle" id="btn-new-project" title="Create a new Project" style="display: none;">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Project</span>
+          </button>
+        </div>
+
+        <!-- Multi-Sprint Switcher -->
+        <div class="nav-control-group">
+          <span class="control-label">Sprint:</span>
+          <select id="sprint-select" class="nav-select">
+            <!-- Populated dynamically -->
+          </select>
+          <button class="btn btn-xs btn-subtle" id="btn-manage-sprints" title="Manage Project Sprints">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            <span>Sprints</span>
+          </button>
+        </div>
+
+        <!-- Custom Columns Config Button -->
+        <button class="btn btn-xs btn-outline" id="btn-manage-columns" title="Configure Kanban Columns" style="display: none;">
+          <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+          <span>Columns</span>
+        </button>
+
+        <!-- Prominent Centered Create Issue Button -->
+        <button class="btn btn-primary btn-sm btn-create-prominent" id="btn-create-issue" title="Create a new Issue in current Project">
+          <svg class="svg-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>Create Issue</span>
+        </button>
+      </div>
+
+      <div class="nav-actions">
+        <!-- Notification Bell & Popover -->
+        <div class="notification-wrapper">
+          <button class="btn-icon" id="notif-bell" title="Notifications" aria-label="Notifications">
+            <svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+            <span class="notif-badge" id="notif-badge" style="display: none;">0</span>
+          </button>
+
+          <!-- Notification Popover Tray -->
+          <div class="notif-popover" id="notif-popover" style="display: none;">
+            <div class="notif-header">
+              <div class="notif-header-title">
+                <span>Notifications</span>
+                <span class="notif-unread-pill" id="notif-unread-count">0 Unread</span>
+              </div>
+              <div class="notif-header-actions">
+                <button class="btn btn-xs btn-subtle" id="btn-mark-all-read">Mark all as read</button>
+              </div>
+            </div>
+            <div class="notif-tabs">
+              <button class="notif-tab active" data-tab="all" id="tab-notif-all">All</button>
+              <button class="notif-tab" data-tab="unread" id="tab-notif-unread">Unread</button>
+            </div>
+            <div class="notif-list" id="notif-list">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- User Profile (Clickable for Profile Name Editing) -->
+        <div class="user-profile clickable-profile" id="user-profile" title="Click to edit your display name">
+          <img src="https://api.dicebear.com/7.x/bottts/svg?seed=admin" class="user-avatar" id="user-avatar" alt="Avatar">
+          <div class="user-info">
+            <div class="user-name-row">
+              <span class="user-name" id="user-name">Loading...</span>
+              <svg class="svg-icon-tiny profile-edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+            </div>
+            <span class="role-badge role-ADMIN" id="user-role-badge">ADMIN</span>
+          </div>
+        </div>
+
+        <!-- Admin User Management Button -->
+        <button class="btn btn-secondary btn-sm" id="btn-manage-users" title="Manage Users & Roles" style="display: none;">
+          <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span>Team</span>
+        </button>
+
+        <!-- Logout Action Button -->
+        <button class="btn btn-secondary btn-sm" id="btn-auth-action" title="Log out of session">
+          <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          <span>Logout</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Active Sprint Status Banner -->
+    <div class="sprint-banner" id="sprint-banner">
+      <div class="sprint-banner-left">
+        <div class="sprint-banner-primary">
+          <span class="sprint-state-pill" id="banner-sprint-state">ACTIVE</span>
+          <h3 class="sprint-banner-title" id="banner-sprint-name">Sprint 1</h3>
+          <div class="sprint-banner-dates-badge">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            <span id="banner-sprint-dates">2026-09-01 – 2026-09-14</span>
+          </div>
+        </div>
+        <div class="sprint-banner-secondary">
+          <span class="sprint-goal-icon" title="Sprint Goal">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+          </span>
+          <span class="sprint-banner-goal" id="banner-sprint-goal">Sprint Goal</span>
+        </div>
+      </div>
+
+      <div class="sprint-banner-right">
+        <div class="sprint-progress-wrap">
+          <div class="sprint-progress-text">
+            <span id="banner-progress-stats">0 of 0 Completed</span>
+            <span id="banner-progress-percent">0%</span>
+          </div>
+          <div class="sprint-progress-bar">
+            <div class="sprint-progress-fill" id="banner-progress-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <div class="sprint-banner-actions">
+          <button class="btn btn-xs btn-primary admin-only" id="btn-banner-complete-sprint" style="display: none;">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Complete Sprint</span>
+          </button>
+          <button class="btn btn-xs btn-outline admin-only" id="btn-banner-start-sprint" style="display: none;">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>Start Sprint</span>
+          </button>
+          <button class="btn btn-xs btn-outline admin-only" id="btn-banner-new-sprint" title="Plan & Create New Sprint" style="display: none;">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>+ Sprint</span>
+          </button>
+          <button class="btn btn-xs btn-subtle" id="btn-sprint-history-trigger" title="View Completed Sprint History">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span>History</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- Global Multi-Criteria Filtering Toolbar -->
+    <div class="toolbar">
+      <div class="search-box">
+        <svg class="search-icon svg-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="search-input" placeholder="Filter issues by keyword, key, tag..." title="Filter by keyword, key, description, assignee, or tag">
+
+      </div>
+
+      <div class="filters-container">
+        <!-- Tag Filter -->
+        <div class="filter-group">
+          <label for="tag-filter">Tag:</label>
+          <select id="tag-filter" class="filter-select">
+            <option value="ALL">All Tags</option>
+          </select>
+        </div>
+
+        <!-- Status Filter -->
+        <div class="filter-group">
+          <label for="status-filter">Column:</label>
+          <select id="status-filter" class="filter-select">
+            <option value="ALL">All Columns</option>
+          </select>
+        </div>
+
+        <!-- Assignee Filter -->
+        <div class="filter-group">
+          <label for="assignee-filter">Assignee:</label>
+          <select id="assignee-filter" class="filter-select">
+            <option value="ALL">All Assignees</option>
+            <option value="UNASSIGNED">Unassigned</option>
+          </select>
+        </div>
+
+        <!-- Role Filter -->
+        <div class="filter-group">
+          <label for="role-filter">Role:</label>
+          <select id="role-filter" class="filter-select">
+            <option value="ALL">All Roles</option>
+            <option value="ADMIN">Admin</option>
+            <option value="MEMBER">Member</option>
+            <option value="VIEWER">Viewer</option>
+          </select>
+        </div>
+
+        <!-- Priority Filter -->
+        <div class="filter-group">
+          <label for="priority-filter">Priority:</label>
+          <select id="priority-filter" class="filter-select">
+            <option value="ALL">All Priorities</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+        </div>
+
+        <!-- Active Filter Indicator & Reset -->
+        <div class="filter-actions">
+          <div class="metrics-pill">
+            <span id="total-issues-count">0</span> Issues
+          </div>
+          <button class="btn btn-xs btn-subtle" id="btn-reset-filters" style="display: none;">
+            <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <span>Clear</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dynamic Kanban Board -->
+    <main class="kanban-board" id="kanban-board">
+      <!-- Columns rendered dynamically -->
+    </main>
+  </div>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- 1. Create Project Modal with Custom Columns Config -->
+  <div class="modal-backdrop" id="create-project-modal" style="display: none;">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <h2>Create New Project</h2>
+        <button class="btn-close" id="project-modal-close">&times;</button>
+      </div>
+      <form id="create-project-form">
+        <div class="form-row">
+          <div class="form-group half">
+            <label for="new-proj-key">Project Key *</label>
+            <input type="text" id="new-proj-key" required maxlength="10" placeholder="e.g. DATA, CLOUD, APP" style="text-transform: uppercase;">
+          </div>
+          <div class="form-group half">
+            <label for="new-proj-name">Project Name *</label>
+            <input type="text" id="new-proj-name" required placeholder="e.g. Data Platform Engine">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="new-proj-desc">Description</label>
+          <textarea id="new-proj-desc" rows="2" placeholder="Brief project summary or mission..."></textarea>
+        </div>
+
+        <!-- Custom Columns Setup for New Project -->
+        <div class="form-group">
+          <label class="section-label">Kanban Columns Workflow</label>
+          <p class="section-desc">Default 5 columns are preconfigured. You can add, remove, or customize columns for this project.</p>
+          <div class="columns-builder-list" id="new-proj-columns-list">
+            <!-- Populated dynamically with default 5 columns -->
+          </div>
+          <div class="add-column-bar">
+            <input type="text" id="new-col-name-input" placeholder="Custom Column Name (e.g. QA, Blocked, Staging)">
+            <button type="button" class="btn btn-xs btn-outline" id="btn-add-custom-column">+ Add Column</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-project">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Project</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. Configure Board Columns Modal (Existing Project) -->
+  <div class="modal-backdrop" id="configure-columns-modal" style="display: none;">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <div>
+          <h2>Configure Kanban Columns</h2>
+          <p class="modal-subtitle">Customize workflow stages, column titles, and ordering for this board</p>
+        </div>
+        <button class="btn-close" id="columns-modal-close">&times;</button>
+      </div>
+      <div class="columns-config-body">
+        <div class="columns-builder-list" id="existing-board-columns-list">
+          <!-- Populated dynamically -->
+        </div>
+        <div class="add-column-bar">
+          <input type="text" id="existing-col-name-input" placeholder="Add Stage (e.g. Design Review, QA, Staging)">
+          <button type="button" class="btn btn-xs btn-outline" id="btn-add-existing-column">+ Add Stage</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-columns">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-save-columns">Save Columns Configuration</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Sprint Management Modal (Tabs: List, Create, History) -->
+  <div class="modal-backdrop" id="sprint-mgmt-modal" style="display: none;">
+    <div class="modal-dialog sprint-dialog">
+      <div class="modal-header">
+        <div>
+          <h2>Sprint Management</h2>
+          <p class="modal-subtitle">Plan, start, manage multiple sprints, and inspect completion history</p>
+        </div>
+        <button class="btn-close" id="sprint-mgmt-close">&times;</button>
+      </div>
+
+      <div class="sprint-tabs">
+        <button class="sprint-tab active" data-tab="active-sprints" id="tab-sprints-active">Current Sprints</button>
+        <button class="sprint-tab" data-tab="create-sprint" id="tab-sprints-create" style="display: none;">+ Plan New Sprint</button>
+        <button class="sprint-tab" data-tab="sprint-history" id="tab-sprints-history">Sprint History</button>
+      </div>
+
+      <!-- Tab 1: Current & Planned Sprints -->
+      <div class="tab-pane" id="pane-sprints-active">
+        <div class="sprints-list-wrapper" id="sprints-list-container">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Tab 2: Create Sprint Form -->
+      <div class="tab-pane" id="pane-sprints-create" style="display: none;">
+        <form id="create-sprint-form">
+          <div class="form-group">
+            <label for="new-sprint-name">Sprint Name *</label>
+            <input type="text" id="new-sprint-name" required placeholder="e.g. Sprint 3 - Real-time Notifications">
+          </div>
+          <div class="form-group">
+            <label for="new-sprint-goal">Sprint Goal</label>
+            <textarea id="new-sprint-goal" rows="2" placeholder="What is the team committing to deliver in this sprint?"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group half">
+              <label for="new-sprint-start">Start Date</label>
+              <input type="date" id="new-sprint-start">
+            </div>
+            <div class="form-group half">
+              <label for="new-sprint-end">End Date</label>
+              <input type="date" id="new-sprint-end">
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="submit" class="btn btn-primary">+ Create & Schedule Sprint</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab 3: Sprint History -->
+      <div class="tab-pane" id="pane-sprints-history" style="display: none;">
+        <div class="sprint-history-list" id="sprint-history-container">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Complete Sprint Confirmation Modal -->
+  <div class="modal-backdrop" id="complete-sprint-modal" style="display: none;">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2>Complete Sprint</h2>
+        <button class="btn-close" id="complete-modal-close">&times;</button>
+      </div>
+      <div class="complete-sprint-body">
+        <p class="complete-prompt">You are about to complete <strong id="complete-sprint-name-display">Sprint</strong>.</p>
+        <div class="sprint-complete-stats" id="complete-stats-box">
+          <div class="stat-pill success"><span id="complete-stat-done">0</span> Completed</div>
+          <div class="stat-pill warning"><span id="complete-stat-incomplete">0</span> Incomplete</div>
+        </div>
+        <div class="form-group" style="margin-top: 16px;">
+          <label for="incomplete-issues-destination">Carryover Incomplete Issues to:</label>
+          <select id="incomplete-issues-destination" class="nav-select full-width">
+            <option value="backlog">Move to Product Backlog</option>
+            <option value="next_sprint">Move to Next Planned Sprint</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-complete">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-complete-sprint">Complete Sprint</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. User Management Modal (Admin) -->
+  <div class="modal-backdrop" id="user-mgmt-modal" style="display: none;">
+    <div class="modal-dialog user-mgmt-dialog">
+      <div class="modal-header">
+        <div>
+          <h2>User Management & Roles</h2>
+          <p class="modal-subtitle">Add team members, configure user permissions, and assign roles</p>
+        </div>
+        <button class="btn-close" id="user-mgmt-close">&times;</button>
+      </div>
+
+      <div class="user-mgmt-tabs">
+        <button class="user-tab active" data-tab="users-list" id="tab-users-list">Team Directory</button>
+        <button class="user-tab" data-tab="users-add" id="tab-users-add">+ Add New User</button>
+      </div>
+
+      <!-- Tab Content: Team Directory -->
+      <div class="tab-pane" id="pane-users-list">
+        <div class="users-table-wrapper">
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab Content: Add User -->
+      <div class="tab-pane" id="pane-users-add" style="display: none;">
+        <form id="add-user-form">
+          <div class="form-row">
+            <div class="form-group half">
+              <label for="add-user-username">Username *</label>
+              <input type="text" id="add-user-username" required placeholder="e.g. david_dev">
+            </div>
+            <div class="form-group half">
+              <label for="add-user-password">Password *</label>
+              <input type="password" id="add-user-password" required placeholder="Temporary password">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group half">
+              <label for="add-user-fullname">Full Name *</label>
+              <input type="text" id="add-user-fullname" required placeholder="e.g. David Williams">
+            </div>
+            <div class="form-group half">
+              <label for="add-user-email">Email *</label>
+              <input type="email" id="add-user-email" required placeholder="e.g. david@orbit.local">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="add-user-role">Role Assignment *</label>
+            <select id="add-user-role">
+              <option value="MEMBER" selected>MEMBER (Full issue creation, editing, commenting)</option>
+              <option value="ADMIN">ADMIN (Full permissions + User Management)</option>
+              <option value="VIEWER">VIEWER (Read-only access)</option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="submit" class="btn btn-primary">+ Create & Add User</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Create Issue Modal -->
+  <div class="modal-backdrop" id="create-modal" style="display: none;">
+    <div class="modal-dialog create-issue-dialog">
+      <div class="modal-header">
+        <h2>Create New Issue</h2>
+        <button class="btn-close" id="modal-close">&times;</button>
+      </div>
+      <form id="create-issue-form">
+        <div class="form-row">
+          <div class="form-group half">
+            <label for="issue-project">Project</label>
+            <select id="issue-project">
+              <!-- Populated dynamically -->
+            </select>
+          </div>
+          <div class="form-group half">
+            <label for="issue-sprint">Sprint</label>
+            <select id="issue-sprint">
+              <option value="">No Sprint (Backlog)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="issue-title">Title *</label>
+          <input type="text" id="issue-title" required placeholder="Short summary of the task...">
+        </div>
+        <div class="form-group">
+          <label for="issue-desc">Description</label>
+          <textarea id="issue-desc" rows="3" placeholder="Provide context, acceptance criteria, or reproduction steps..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group half">
+            <label for="issue-priority">Priority</label>
+            <select id="issue-priority">
+              <option value="LOW">Low</option>
+              <option value="MEDIUM" selected>Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+          <div class="form-group half">
+            <label for="issue-status">Initial Status</label>
+            <select id="issue-status">
+              <!-- Populated dynamically based on project columns -->
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group half">
+            <label for="issue-assignee">Assignee</label>
+            <select id="issue-assignee">
+              <option value="">Unassigned</option>
+            </select>
+          </div>
+          <div class="form-group half">
+            <label for="issue-tags">Tags (comma-separated)</label>
+            <input type="text" id="issue-tags" placeholder="e.g. Frontend, Bug, API">
+          </div>
+        </div>
+
+        <!-- Issue Attachments Upload -->
+        <div class="form-group">
+          <label>Image Attachments (Screenshots, Diagrams)</label>
+          <div class="file-drop-zone" id="file-drop-zone">
+            <svg class="svg-icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            <span class="upload-text">Drag & drop image files here, or <label for="issue-file-input" class="file-browse-link">browse</label></span>
+            <input type="file" id="issue-file-input" accept="image/*" multiple style="display: none;">
+          </div>
+          <div class="attachments-preview-list" id="create-attachments-preview"></div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Issue</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 7. Issue Detail & Discussion Modal -->
+  <div class="modal-backdrop" id="issue-detail-modal" style="display: none;">
+    <div class="modal-dialog issue-detail-dialog">
+      <div class="modal-header">
+        <div class="detail-header-left">
+          <span class="detail-key" id="detail-issue-key">PROJ-1</span>
+          <span class="priority-badge" id="detail-priority-badge">HIGH</span>
+          <span class="status-badge" id="detail-status-badge">IN_PROGRESS</span>
+        </div>
+        <button class="btn-close" id="detail-modal-close">&times;</button>
+      </div>
+
+      <div class="detail-body">
+        <!-- Left: Ticket Details & Attachments -->
+        <div class="detail-main-col">
+          <!-- Prominent Assignee Banner in Ticket Detail -->
+          <div class="detail-assignee-spotlight" id="detail-assignee-spotlight">
+            <img src="" class="spotlight-avatar" id="spotlight-avatar" alt="Assignee">
+            <div class="spotlight-info">
+              <span class="spotlight-label">Ticket Assignee</span>
+              <span class="spotlight-name" id="spotlight-name">Alex Chen</span>
+            </div>
+            <div class="spotlight-select-wrap">
+              <select id="detail-assignee-select" class="detail-select compact">
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="detail-field-group">
+            <label for="detail-title-input" class="detail-label">Title</label>
+            <input type="text" id="detail-title-input" class="detail-title-input">
+          </div>
+
+          <div class="detail-field-group">
+            <label for="detail-desc-input" class="detail-label">Description</label>
+            <textarea id="detail-desc-input" rows="4" class="detail-desc-input"></textarea>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-field-group half">
+              <label for="detail-priority-select" class="detail-label">Priority</label>
+              <select id="detail-priority-select" class="detail-select">
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+                <option value="CRITICAL">Critical</option>
+              </select>
+            </div>
+            <div class="detail-field-group half">
+              <label class="detail-label">Sprint</label>
+              <div id="detail-sprint-display" class="detail-static-pill" title="Sprint cannot be modified from Ticket Details">
+                <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <span id="detail-sprint-name">No Sprint (Backlog)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tags Editor -->
+          <div class="detail-field-group">
+            <label for="detail-tags-input" class="detail-label">Tags</label>
+            <div class="tags-editor-wrapper">
+              <div class="tags-display" id="detail-tags-display"></div>
+              <input type="text" id="detail-tags-input" placeholder="Add tag and press Enter..." class="tag-inline-input">
+            </div>
+          </div>
+
+          <!-- Attachments Gallery -->
+          <div class="detail-field-group">
+            <div class="attachments-header">
+              <label class="detail-label">Attachments (<span id="detail-attachment-count">0</span>)</label>
+              <label for="detail-upload-file" class="btn btn-xs btn-outline upload-btn">
+                <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <span>Add Image</span>
+              </label>
+              <input type="file" id="detail-upload-file" accept="image/*" style="display: none;">
+            </div>
+            <div class="attachments-grid" id="detail-attachments-grid">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+
+          <div class="detail-save-bar">
+            <button class="btn btn-primary btn-sm" id="btn-save-issue-details">Save Changes</button>
+            <span class="save-status-msg" id="detail-save-msg"></span>
+          </div>
+        </div>
+
+        <!-- Right: Comments & Discussions with @Mentions -->
+        <div class="detail-comments-col">
+          <div class="comments-header">
+            <h3>Discussion & Comments</h3>
+            <span class="comments-count" id="detail-comments-count">0 comments</span>
+          </div>
+
+          <!-- Comment Stream -->
+          <div class="comments-stream" id="detail-comments-stream">
+            <!-- Rendered dynamically -->
+          </div>
+
+          <!-- Mention Suggestion Helper -->
+          <div class="mention-helper">
+            <span class="mention-helper-label">Mention team member:</span>
+            <div class="mention-chips" id="mention-chips">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+
+          <!-- Comment Input Composer -->
+          <form id="comment-composer-form" class="comment-composer">
+            <textarea id="comment-input" rows="3" placeholder="Leave a comment... Type @ to tag a team member" required></textarea>
+            
+            <!-- Staged comment images preview strip -->
+            <div class="comment-img-staging" id="comment-img-staging" style="display: none;"></div>
+
+            <div class="composer-actions">
+              <div class="composer-tools">
+                <input type="file" id="comment-img-file-input" accept="image/*" multiple style="display: none;">
+                <button type="button" class="btn btn-xs btn-subtle" id="btn-comment-attach-img" title="Attach picture/image to comment">
+                  <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                  <span>Attach Image</span>
+                </button>
+                <span class="composer-hint">Markdown & @mentions supported</span>
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm" id="btn-submit-comment">Post Comment</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Image Lightbox Modal -->
+  <div class="modal-backdrop lightbox-backdrop" id="lightbox-modal" style="display: none;">
+    <div class="lightbox-dialog">
+      <button class="lightbox-close" id="lightbox-close">&times;</button>
+      <img src="" id="lightbox-img" class="lightbox-image" alt="Attachment Preview">
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+  </div>
+
+  <!-- 9. User Profile Modal (Self Name Change) -->
+  <div class="modal-backdrop" id="user-profile-modal" style="display: none;">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2>Edit Profile</h2>
+        <button class="btn-close" id="profile-modal-close">&times;</button>
+      </div>
+      <form id="user-profile-form">
+        <div class="form-group">
+          <label for="profile-username-display">Username</label>
+          <input type="text" id="profile-username-display" disabled class="input-disabled" style="opacity: 0.7; cursor: not-allowed;">
+        </div>
+        <div class="form-group">
+          <label for="profile-fullname-input">Your Full Name *</label>
+          <input type="text" id="profile-fullname-input" required placeholder="Enter your full name">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="btn-cancel-profile">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Profile Name</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 10. Admin Edit User Name Modal -->
+  <div class="modal-backdrop" id="admin-user-edit-modal" style="display: none;">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2>Edit User Name</h2>
+        <button class="btn-close" id="admin-user-edit-close">&times;</button>
+      </div>
+      <form id="admin-user-edit-form">
+        <input type="hidden" id="admin-edit-user-id">
+        <div class="form-group">
+          <label id="admin-edit-user-info-label" style="font-weight: 600; color: var(--text-secondary);">User</label>
+        </div>
+        <div class="form-group">
+          <label for="admin-edit-fullname-input">Full Name *</label>
+          <input type="text" id="admin-edit-fullname-input" required placeholder="Enter user's new full name">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="btn-cancel-admin-user-edit">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update Name</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 11. Admin Change Password Modal -->
+  <div class="modal-backdrop" id="admin-password-modal" style="display: none;">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2>Change User Password</h2>
+        <button class="btn-close" id="admin-password-close">&times;</button>
+      </div>
+      <form id="admin-password-form">
+        <input type="hidden" id="admin-password-user-id">
+        <div class="form-group">
+          <label id="admin-password-user-label" style="font-weight: 600; color: var(--text-secondary);">User</label>
+        </div>
+        <div class="form-group">
+          <label for="admin-new-password-input">New Password *</label>
+          <input type="password" id="admin-new-password-input" required minlength="4" placeholder="Enter new password (min 4 chars)">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-subtle" id="btn-cancel-admin-password">Cancel</button>
+          <button type="submit" class="btn btn-primary">Set New Password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=4"></script>
+</body>
+</html>
