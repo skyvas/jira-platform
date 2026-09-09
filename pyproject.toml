@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jira-platform"
+version = "0.1.0"
+description = "Agile Project Management & Kanban Tracker Orchestrated by AgentGraph"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"

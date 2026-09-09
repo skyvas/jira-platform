@@ -1,0 +1,18 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# Database & Worktrees
+*.db
+*.sqlite3
+.worktrees/
+.logs/
+*.tmp
+.DS_Store
