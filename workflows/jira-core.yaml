@@ -1,5 +1,5 @@
 version: "1.0"
-name: "Jira Core: Kanban Board & Agile Sprints"
+name: "Orbit Core: Kanban Board & Agile Sprints"
 
 nodes:
   - id: board-spec

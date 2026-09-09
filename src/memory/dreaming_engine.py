@@ -19,6 +19,7 @@ class DreamingResult:
     new_failure_patterns: int
     gemini_synced: bool
     summary: str
+    new_conventions: int = 0
 
 
 class DreamingEngine:
@@ -37,7 +38,7 @@ class DreamingEngine:
 
     def distill_trace_data(self, events: List[Dict[str, Any]], session_id: str = "session-1") -> Dict[str, Any]:
         """
-        Extracts reusable architectural invariants and failure patterns from a session trace.
+        Extracts reusable architectural invariants, failure patterns, and conventions from a session trace.
         Can run with rule-based heuristics or Gemini LLM.
         """
         compacted = ContextPruner.compact_session_trace(events)
@@ -45,8 +46,9 @@ class DreamingEngine:
 
         extracted_invariants = []
         extracted_patterns = []
+        extracted_conventions = []
 
-        # Analyze errors resolved in the trace
+        # Analyze errors resolved and semantic facts in the trace
         for event in compacted:
             if event.get("type") == "error_resolution":
                 fp_id = f"FP-{len(self.memory_manager.read_failure_patterns()) + 101:03d}"
@@ -67,9 +69,15 @@ class DreamingEngine:
                     "rule": event.get("rule", "")
                 })
 
+            elif event.get("type") == "convention":
+                rule = event.get("rule", "").strip()
+                if rule:
+                    extracted_conventions.append(rule)
+
         return {
             "invariants": extracted_invariants,
             "patterns": extracted_patterns,
+            "conventions": extracted_conventions,
             "compacted_count": len(compacted)
         }
 
@@ -84,6 +92,7 @@ class DreamingEngine:
 
         invariants_added = 0
         patterns_added = 0
+        conventions_added = 0
 
         for t_file in trace_files:
             try:
@@ -111,6 +120,10 @@ class DreamingEngine:
                     self.memory_manager.add_failure_pattern(pat)
                     patterns_added += 1
 
+                for conv in distilled.get("conventions", []):
+                    self.memory_manager.add_convention(conv)
+                    conventions_added += 1
+
                 if prune_transient:
                     # Clean or remove processed episodic log
                     t_file.unlink(missing_ok=True)
@@ -124,7 +137,8 @@ class DreamingEngine:
 
         summary = (
             f"Dreaming Cycle Complete: Processed {len(trace_files)} trace(s), "
-            f"added {invariants_added} invariant(s), {patterns_added} failure pattern(s). "
+            f"added {invariants_added} invariant(s), {patterns_added} failure pattern(s), "
+            f"{conventions_added} convention(s). "
             f"GEMINI.md synced: {synced}."
         )
 
@@ -133,5 +147,6 @@ class DreamingEngine:
             new_invariants=invariants_added,
             new_failure_patterns=patterns_added,
             gemini_synced=synced,
-            summary=summary
+            summary=summary,
+            new_conventions=conventions_added
         )

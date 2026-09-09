@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from backend.api.routes import router
 
-app = FastAPI(title="JiraPlatform API", version="1.0.0")
+app = FastAPI(title="Orbit API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,6 +20,8 @@ app.add_middleware(
 app.include_router(router)
 
 frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
+uploads_dir = frontend_dir / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
 if frontend_dir.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 

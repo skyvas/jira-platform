@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jira-platform"
+name = "orbit"
 version = "0.1.0"
-description = "Agile Project Management & Kanban Tracker Orchestrated by AgentGraph"
+description = "Orbit: Enterprise Agile Project Management, Multiple Sprints & Kanban Platform"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }

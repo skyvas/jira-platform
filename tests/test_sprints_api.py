@@ -6,12 +6,17 @@ client = TestClient(app)
 
 
 def test_sprint_lifecycle():
+    # Authenticate as admin
+    login_res = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    assert login_res.status_code == 200
+
     # Get project id
     proj_res = client.get("/api/projects")
     proj_id = proj_res.json()[0]["id"]
 
     # Create sprint
     create_res = client.post("/api/sprints", json={
+
         "project_id": proj_id,
         "name": "Sprint 2 - Board Refinement",
         "goal": "Polish drag-and-drop interactions"

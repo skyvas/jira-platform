@@ -35,7 +35,7 @@ class ContextPruner:
         compacted = []
         for event in log_events:
             ev_type = event.get("type", "")
-            if ev_type in {"goal", "diff", "verification", "invariant", "error_resolution"}:
+            if ev_type in {"goal", "diff", "verification", "invariant", "error_resolution", "convention"}:
                 event_copy = dict(event)
                 if "output" in event_copy and isinstance(event_copy["output"], str):
                     event_copy["output"] = cls.prune_text(event_copy["output"])[:1000]

@@ -42,12 +42,14 @@ class AgentLoop:
         max_iterations: Optional[int] = None,
         token_alert_threshold: Optional[int] = None,
         hook_runner: Optional[HookRunner] = None,
-        llm_fn: Optional[Callable[[str, str], str]] = None
+        llm_fn: Optional[Callable[[str, str], str]] = None,
+        trace_dir: Optional[Path] = None
     ):
         self.max_iterations = max_iterations or int(os.environ.get("MAX_LOOP_ITERATIONS", 15))
         self.token_monitor = TokenBudgetMonitor(alert_threshold=token_alert_threshold)
         self.hook_runner = hook_runner or HookRunner()
         self.llm_fn = llm_fn or self._default_gemini_or_mock_llm
+        self.trace_dir = (trace_dir or Path(os.environ.get("TRACE_DIR", Path.cwd() / ".logs" / "sessions"))).resolve()
 
     def _default_gemini_or_mock_llm(self, prompt: str, system_prompt: str) -> str:
         """
@@ -108,12 +110,69 @@ class AgentLoop:
 
         return "\n\n".join(observations)
 
+    def _save_session_trace(
+        self,
+        session_id: str,
+        goal: str,
+        verify_cmd: str,
+        records: List[IterationRecord],
+        success: bool,
+        final_gate: Optional[GateResult],
+        workdir: Path
+    ) -> Path:
+        """Persists the execution session trace to disk for offline dreaming consolidation."""
+        try:
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            events: List[Dict[str, Any]] = [
+                {"type": "goal", "output": goal}
+            ]
+
+            # Collect diff if inside git repo
+            try:
+                git_diff = subprocess.run(
+                    ["git", "diff", "HEAD"],
+                    cwd=str(workdir),
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if git_diff.stdout.strip():
+                    events.append({"type": "diff", "output": git_diff.stdout.strip()[:5000]})
+            except Exception:
+                pass
+
+            # Detect error resolution events if intermediate iterations failed but final succeeded
+            had_error = any(rec.gate_result and not rec.gate_result.passed for rec in records)
+            if had_error and success:
+                failed_recs = [rec for rec in records if rec.gate_result and not rec.gate_result.passed]
+                last_failed = failed_recs[-1]
+                events.append({
+                    "type": "error_resolution",
+                    "title": f"Resolved failure for: {goal[:60]}",
+                    "symptoms": (last_failed.gate_result.stderr if last_failed.gate_result else "").strip()[:400] or "Process verification failed",
+                    "root_cause": f"Command '{verify_cmd}' failed with non-zero exit code during iterative development",
+                    "rule": f"Enforce clean verification pass for '{verify_cmd}'."
+                })
+
+            if final_gate and final_gate.passed:
+                events.append({
+                    "type": "verification",
+                    "output": f"Command '{verify_cmd}' passed with exit code 0."
+                })
+
+            trace_file = self.trace_dir / f"{session_id}.json"
+            trace_file.write_text(json.dumps(events, indent=2), encoding="utf-8")
+            return trace_file
+        except Exception:
+            return self.trace_dir / f"{session_id}.json"
+
     def run(
         self,
         goal: str,
         verify_cmd: str,
         workdir: Optional[Path] = None,
-        on_iteration: Optional[Callable[[IterationRecord], None]] = None
+        on_iteration: Optional[Callable[[IterationRecord], None]] = None,
+        session_id: Optional[str] = None
     ) -> LoopResult:
         """
         Executes the autonomous loop: Observe -> Plan -> Act -> Hook -> Verify
@@ -123,6 +182,7 @@ class AgentLoop:
         target_dir = (workdir or Path.cwd()).resolve()
         records: List[IterationRecord] = []
         last_gate: Optional[GateResult] = None
+        session_name = session_id or f"session-{int(time.time() * 1000)}"
 
         for iteration in range(1, self.max_iterations + 1):
             iter_start = time.perf_counter()
@@ -165,6 +225,15 @@ class AgentLoop:
             # Success condition: Process Exit Code 0
             if gate_result.passed:
                 total_duration = time.perf_counter() - start_time
+                self._save_session_trace(
+                    session_id=session_name,
+                    goal=goal,
+                    verify_cmd=verify_cmd,
+                    records=records,
+                    success=True,
+                    final_gate=gate_result,
+                    workdir=target_dir
+                )
                 return LoopResult(
                     goal=goal,
                     success=True,
@@ -177,6 +246,15 @@ class AgentLoop:
                 )
 
         total_duration = time.perf_counter() - start_time
+        self._save_session_trace(
+            session_id=session_name,
+            goal=goal,
+            verify_cmd=verify_cmd,
+            records=records,
+            success=False,
+            final_gate=last_gate,
+            workdir=target_dir
+        )
         return LoopResult(
             goal=goal,
             success=False,

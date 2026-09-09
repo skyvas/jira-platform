@@ -1,4 +1,4 @@
-# Markdown Semantic Memory for JiraPlatform
+# Markdown Semantic Memory for Orbit
 
 This directory contains version-controlled architectural facts and operational knowledge.
 - architecture.md: System invariants (LexoRank, state machine rules, multi-tenancy)

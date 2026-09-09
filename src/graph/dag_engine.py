@@ -12,6 +12,7 @@ from src.harness.git_worktree import GitWorktreeManager
 from src.loop.agent_loop import AgentLoop
 from src.loop.verifier_gate import VerifierGate
 from src.memory.dreaming_engine import DreamingEngine
+from src.memory.markdown_memory import MarkdownMemoryManager
 from src.verifier.clean_verifier import CleanVerifier
 
 
@@ -35,7 +36,10 @@ class DAGEngine:
         self.concurrency_limit = concurrency_limit or int(os.environ.get("CONCURRENCY_LIMIT", 4))
         self.repo_root = (repo_root or Path.cwd()).resolve()
         self.worktree_manager = worktree_manager or GitWorktreeManager(repo_root=self.repo_root)
-        self.dreaming_engine = dreaming_engine or DreamingEngine()
+        self.dreaming_engine = dreaming_engine or DreamingEngine(
+            memory_manager=MarkdownMemoryManager(memory_dir=self.repo_root / ".memory"),
+            trace_dir=self.repo_root / ".logs" / "sessions"
+        )
         self.verifier = verifier or CleanVerifier()
         self.verbose = verbose
 
@@ -118,8 +122,31 @@ class DAGEngine:
             elif node.type == NodeType.WORKER:
                 # Worker runs the autonomous loop against verification gate
                 verify_cmd = node.verification.command if node.verification else "echo OK"
-                loop = AgentLoop(max_iterations=int(os.environ.get("MAX_LOOP_ITERATIONS", 15)))
-                loop_res = loop.run(goal=node.prompt, verify_cmd=verify_cmd, workdir=target_dir)
+                loop = AgentLoop(
+                    max_iterations=int(os.environ.get("MAX_LOOP_ITERATIONS", 15)),
+                    trace_dir=self.repo_root / ".logs" / "sessions"
+                )
+                loop_res = loop.run(
+                    goal=node.prompt,
+                    verify_cmd=verify_cmd,
+                    workdir=target_dir,
+                    session_id=node.id
+                )
+
+                # Capture diff from worktree or target dir
+                worker_diff = ""
+                try:
+                    import subprocess
+                    diff_proc = subprocess.run(
+                        ["git", "diff", "HEAD"],
+                        cwd=str(target_dir),
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
+                    worker_diff = diff_proc.stdout.strip()
+                except Exception:
+                    pass
 
                 status = NodeStatus.SUCCESS if loop_res.success else NodeStatus.FAILED
                 exit_code = loop_res.final_gate_result.exit_code if loop_res.final_gate_result else (0 if loop_res.success else 1)
@@ -133,6 +160,7 @@ class DAGEngine:
                     duration_seconds=time.perf_counter() - start_time,
                     produced_outputs=node.outputs,
                     worktree_path=wt_path,
+                    diff=worker_diff,
                     message=loop_res.message
                 )
 
@@ -170,13 +198,37 @@ class DAGEngine:
             elif node.type == NodeType.DREAM:
                 # Dreaming consolidation phase
                 dream_res = self.dreaming_engine.run_dreaming_cycle(sync_gemini=True)
+                targeted_notes = []
+
+                if node.target:
+                    target_path = Path(node.target)
+                    target_name = target_path.name.lower()
+
+                    if "conventions" in target_name:
+                        if node.prompt and not node.prompt.lower().startswith("consolidate"):
+                            self.dreaming_engine.memory_manager.add_convention(node.prompt)
+                            targeted_notes.append(f"Recorded convention to {target_path.name}")
+                    elif "architecture" in target_name:
+                        task_ref = node.inputs[0] if node.inputs else node.id
+                        if node.prompt and not node.prompt.lower().startswith("consolidate"):
+                            self.dreaming_engine.memory_manager.add_invariant(
+                                category="System Invariants",
+                                title=node.id,
+                                rule=node.prompt,
+                                task_ref=task_ref
+                            )
+                            targeted_notes.append(f"Recorded invariant to {target_path.name}")
+
+                extra_info = f" ({'; '.join(targeted_notes)})" if targeted_notes else ""
+                summary = f"{dream_res.summary}{extra_info}"
+
                 return NodeResult(
                     node_id=node.id,
                     status=NodeStatus.SUCCESS,
                     exit_code=0,
-                    stdout=dream_res.summary,
+                    stdout=summary,
                     duration_seconds=time.perf_counter() - start_time,
-                    message=dream_res.summary
+                    message=summary
                 )
 
             elif node.type == NodeType.SYNTHESIZER:

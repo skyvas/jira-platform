@@ -33,6 +33,9 @@ class ArchitectureInvariant:
     title: str
     rule: str
 
+    def to_markdown(self) -> str:
+        return f"- **{self.title}:** {self.rule}\n"
+
 
 @dataclass
 class ADR:
@@ -72,21 +75,50 @@ class MarkdownMemoryManager:
             return self.arch_file.read_text(encoding="utf-8")
         return "# Architecture Invariants & System Constants\n"
 
+    def read_invariants(self) -> List[ArchitectureInvariant]:
+        """Parses architecture.md into ArchitectureInvariant objects."""
+        if not self.arch_file.exists():
+            return []
+
+        content = self.arch_file.read_text(encoding="utf-8")
+        invariants: List[ArchitectureInvariant] = []
+        current_category = "General"
+
+        for line in content.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("## "):
+                current_category = line_str[3:].strip()
+            elif line_str.startswith("- **") and ":**" in line_str:
+                pattern = r"^-\s+\*\*(.+?):\*\*\s*(.+)$"
+                match = re.match(pattern, line_str)
+                if match:
+                    title = match.group(1).strip()
+                    rule = match.group(2).strip()
+                    invariants.append(ArchitectureInvariant(category=current_category, title=title, rule=rule))
+
+        return invariants
+
     def add_invariant(self, category: str, title: str, rule: str, task_ref: str = "") -> None:
         """Appends or updates an architectural invariant."""
         content = self.read_architecture()
         today = date.today().isoformat()
         header = f"## {category}"
+        new_entry = f"- **{title}:** {rule}"
 
-        new_entry = f"- **{title}:** {rule}\n"
+        # Deduplicate or update if entry with this title already exists
+        entry_pattern = re.compile(rf"^-\s+\*\*{re.escape(title)}:\*\*.*$", re.MULTILINE)
 
         if header in content:
-            # Append under existing category header
-            parts = content.split(header, 1)
-            content = parts[0] + header + "\n" + new_entry + parts[1].lstrip("\n")
+            if entry_pattern.search(content):
+                content = entry_pattern.sub(new_entry, content)
+            else:
+                parts = content.split(header, 1)
+                content = parts[0] + header + "\n" + new_entry + "\n" + parts[1].lstrip("\n")
         else:
-            # Add new category section
-            content = content.rstrip() + f"\n\n{header}\n{new_entry}"
+            if entry_pattern.search(content):
+                content = entry_pattern.sub(new_entry, content)
+            else:
+                content = content.rstrip() + f"\n\n{header}\n{new_entry}\n"
 
         # Update or insert last updated line
         if "*Last Updated by Agent Dreaming Engine:" in content:
@@ -103,6 +135,37 @@ class MarkdownMemoryManager:
                 content = f"*Last Updated by Agent Dreaming Engine: {today} ({task_ref})*\n\n" + content
 
         self.arch_file.write_text(content, encoding="utf-8")
+
+    def read_conventions(self) -> List[str]:
+        """Reads conventions.md and returns list of rule strings."""
+        if not self.conventions_file.exists():
+            return []
+
+        content = self.conventions_file.read_text(encoding="utf-8")
+        conventions: List[str] = []
+        for line in content.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("- "):
+                conventions.append(line_str[2:].strip())
+        return conventions
+
+    def add_convention(self, rule: str) -> None:
+        """Appends a new convention if not already present."""
+        clean_rule = rule.strip().lstrip("- ").strip()
+        if not clean_rule:
+            return
+
+        existing = self.read_conventions()
+        if any(c.lower() == clean_rule.lower() for c in existing):
+            return
+
+        if not self.conventions_file.exists():
+            content = f"# Code Style & Conventions\n\n- {clean_rule}\n"
+        else:
+            content = self.conventions_file.read_text(encoding="utf-8").rstrip()
+            content += f"\n- {clean_rule}\n"
+
+        self.conventions_file.write_text(content, encoding="utf-8")
 
     def read_failure_patterns(self) -> List[FailurePattern]:
         """Parses failure-patterns.md into FailurePattern objects."""
