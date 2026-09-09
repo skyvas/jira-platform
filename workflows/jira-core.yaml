@@ -1,0 +1,38 @@
+version: "1.0"
+name: "Jira Core: Kanban Board & Agile Sprints"
+
+nodes:
+  - id: board-spec
+    type: planner
+    prompt: "Design Kanban and Sprint data models."
+    outputs: ["docs/specs/board.md"]
+    verification:
+      command: "echo 'Spec valid'"
+
+  - id: issue-worker
+    type: worker
+    inputs: ["docs/specs/board.md"]
+    worktree: true
+    prompt: "Implement StateMachine and LexoRank card ordering."
+    verification:
+      command: "pytest tests/ -v"
+
+  - id: security-verifier
+    type: verifier
+    freshContext: true
+    inputs: ["issue-worker"]
+    prompt: "Audit diff for unauthorized state transitions and race conditions."
+    gate: "blocking"
+
+  - id: memory-dream
+    type: dream
+    inputs: ["security-verifier"]
+    target: ".memory/architecture.md"
+    prompt: "Consolidate transition invariants into .memory/architecture.md"
+
+  - id: final-synthesizer
+    type: synthesizer
+    inputs: ["memory-dream"]
+    prompt: "Merge worktree branches and execute test suite."
+    verification:
+      command: "pytest tests/ -v"

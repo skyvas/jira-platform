@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JiraPlatform // Agile Kanban & Sprint Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="logo-icon">⚡</div>
+        <div class="brand-text">
+          <span class="brand-title">JiraPlatform</span>
+          <span class="brand-badge">Agile Core</span>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <div class="project-selector">
+          <span class="proj-label">Project:</span>
+          <span class="proj-name" id="current-project">PROJ (Core Platform)</span>
+        </div>
+        <div class="sprint-indicator">
+          <span class="status-dot"></span>
+          <span id="sprint-status">Sprint 1: Active</span>
+        </div>
+        <button class="btn btn-primary" id="btn-create-issue">+ Create Issue</button>
+      </div>
+    </header>
+
+    <!-- Filter & Subnav Toolbar -->
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search issues by key or title...">
+      </div>
+      <div class="filter-group">
+        <label for="priority-filter">Priority:</label>
+        <select id="priority-filter">
+          <option value="ALL">All Priorities</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
+      </div>
+      <div class="metrics-pill">
+        <span id="total-issues-count">0</span> Total Issues
+      </div>
+    </div>
+
+    <!-- Kanban Board -->
+    <main class="kanban-board" id="kanban-board">
+      <!-- Columns rendered dynamically -->
+    </main>
+  </div>
+
+  <!-- Create Issue Modal -->
+  <div class="modal-backdrop" id="create-modal" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2>Create New Issue</h2>
+        <button class="btn-close" id="modal-close">&times;</button>
+      </div>
+      <form id="create-issue-form">
+        <div class="form-group">
+          <label for="issue-title">Title *</label>
+          <input type="text" id="issue-title" required placeholder="Short summary of the task...">
+        </div>
+        <div class="form-group">
+          <label for="issue-desc">Description</label>
+          <textarea id="issue-desc" rows="3" placeholder="Provide context or acceptance criteria..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group half">
+            <label for="issue-priority">Priority</label>
+            <select id="issue-priority">
+              <option value="LOW">Low</option>
+              <option value="MEDIUM" selected>Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+          <div class="form-group half">
+            <label for="issue-status">Initial Status</label>
+            <select id="issue-status">
+              <option value="BACKLOG">Backlog</option>
+              <option value="TODO" selected>To Do</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="REVIEW">In Review</option>
+              <option value="DONE">Done</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="issue-assignee">Assignee</label>
+          <input type="text" id="issue-assignee" placeholder="e.g. Alex, Sam, DevAgent">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Issue</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
