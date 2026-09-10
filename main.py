@@ -1,5 +1,6 @@
-"""Universal entrypoint supporting ASGI/Uvicorn runtimes and zero-dependency Wasmer Edge environments."""
+import base64
 from datetime import datetime
+import email
 import hashlib
 import json
 import mimetypes
@@ -423,6 +424,45 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             pass
         return {}
 
+    def _parse_upload(self) -> tuple[str, bytes, str]:
+        content_type = self.headers.get("Content-Type", "")
+        content_length = int(self.headers.get("Content-Length", 0))
+        body_bytes = self.rfile.read(content_length) if content_length > 0 else b""
+
+        filename = "attachment.png"
+        file_bytes = b""
+        mime_type = "image/png"
+
+        if content_type.startswith("multipart/form-data") and body_bytes:
+            try:
+                msg = email.message_from_bytes(
+                    b"Content-Type: " + content_type.encode("utf-8") + b"\r\n\r\n" + body_bytes
+                )
+                for part in msg.walk():
+                    part_fn = part.get_filename()
+                    if part_fn:
+                        filename = Path(part_fn).name
+                        mime_type = part.get_content_type() or "image/png"
+                        file_bytes = part.get_payload(decode=True) or b""
+                        break
+            except Exception:
+                pass
+        elif ("application/json" in content_type or body_bytes.strip().startswith(b"{")) and body_bytes:
+            try:
+                payload = json.loads(body_bytes.decode("utf-8"))
+                filename = Path(payload.get("filename", "attachment.png")).name
+                mime_type = payload.get("content_type", "image/png")
+                raw_b64 = payload.get("data", "")
+                if "," in raw_b64:
+                    raw_b64 = raw_b64.split(",", 1)[1]
+                file_bytes = base64.b64decode(raw_b64)
+            except Exception:
+                pass
+        elif body_bytes:
+            file_bytes = body_bytes
+
+        return filename, file_bytes, mime_type
+
     def _get_token(self) -> Optional[str]:
         cookie_header = self.headers.get("Cookie", "")
         if cookie_header:
@@ -805,17 +845,35 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             issue_id = m_att.group(1)
             issue = STATE.find_issue(issue_id)
             if not issue:
+                self._parse_upload()
                 self._send_json({"detail": "Issue not found"}, 404)
                 return
+
+            filename, file_bytes, mime_type = self._parse_upload()
+            clean_name = Path(filename or "attachment.png").name
+            uploads_dir = self.frontend_dir / "uploads"
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            saved_name = f"{uuid.uuid4().hex[:8]}_{clean_name}"
+            save_path = uploads_dir / saved_name
+            with open(save_path, "wb") as f:
+                f.write(file_bytes)
+
+            file_url = f"/static/uploads/{saved_name}"
+            caller = self._get_current_user()
+            uploader = caller["username"] if caller else "admin"
+
             att = {
                 "id": f"att-{uuid.uuid4().hex[:8]}",
-                "filename": "attachment.png",
-                "file_url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800"
+                "issue_id": issue_id,
+                "filename": clean_name,
+                "file_url": file_url,
+                "content_type": mime_type,
+                "size_bytes": len(file_bytes),
+                "uploaded_by": uploader,
+                "uploaded_at": datetime.utcnow().isoformat() + "Z"
             }
             issue.setdefault("attachments", []).append(att)
 
-            caller = self._get_current_user()
-            uploader = caller["username"] if caller else "admin"
             assignee = issue.get("assignee")
             if assignee and assignee.lower() != uploader.lower():
                 STATE.create_notification(
@@ -827,11 +885,25 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                     issue_key=issue["key"]
                 )
 
-            self._send_json(att, 201)
+            self._send_json(att, 200)
             return
 
         if raw_path == "/api/comments/upload-image":
-            self._send_json({"url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800"}, 200)
+            filename, file_bytes, mime_type = self._parse_upload()
+            clean_name = Path(filename or "comment_image.png").name
+            uploads_dir = self.frontend_dir / "uploads"
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            saved_name = f"cmt_{uuid.uuid4().hex[:8]}_{clean_name}"
+            save_path = uploads_dir / saved_name
+            with open(save_path, "wb") as f:
+                f.write(file_bytes)
+
+            file_url = f"/static/uploads/{saved_name}"
+            self._send_json({
+                "file_url": file_url,
+                "url": file_url,
+                "filename": clean_name
+            }, 200)
             return
 
         if raw_path == "/api/sprints":

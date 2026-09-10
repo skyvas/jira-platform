@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 .venv/
+.venv
 venv/
 .env
 
@@ -14,6 +15,7 @@ venv/
 *.sqlite3
 .worktrees/
 .logs/
+.playwright-mcp/
 *.tmp
 .DS_Store
 frontend/uploads/*
