@@ -85,10 +85,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (btn) btn.click();
     }, 700);
   } else if (modalParam === 'ticket') {
-    setTimeout(() => {
-      const firstCard = document.querySelector('.kanban-card');
-      if (firstCard) firstCard.click();
-    }, 700);
+    setTimeout(async () => {
+      if (allIssues && allIssues.length > 0) {
+        await openIssueDetail(allIssues[0].id);
+      } else {
+        await openIssueDetail('iss-1');
+      }
+    }, 1000);
   }
 
   // Periodic notification check (every 8 seconds when authenticated)

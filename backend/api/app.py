@@ -10,7 +10,10 @@ from backend.services.postgres_repository import get_database_url
 
 app = FastAPI(title="Orbit API", version="1.0.0")
 
-app.state.database_url = get_database_url()
+try:
+    app.state.database_url = get_database_url()
+except Exception:
+    app.state.database_url = None
 
 app.add_middleware(
     CORSMiddleware,
