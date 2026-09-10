@@ -14,11 +14,23 @@ from backend.models.domain import (
     Role, Sprint, SprintState, UpdateUserNameRequest, UpdateUserPasswordRequest,
     User, UserCreate, UserLogin
 )
-from backend.services.postgres_repository import PostgresRepository, get_database_url
+import os
+from backend.services.jira_store import OrbitStore, JiraStore
+from backend.services.postgres_repository import PostgresRepository
 from backend.services.state_machine import InvalidTransitionError
 
 router = APIRouter(prefix="/api")
-store = PostgresRepository()
+
+def _init_store():
+    db_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DATABASE_URL") or os.getenv("POSTGRES_URL")
+    if db_url:
+        try:
+            return PostgresRepository(db_url)
+        except Exception:
+            return OrbitStore()
+    return OrbitStore()
+
+store = _init_store()
 
 frontend_uploads_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "uploads"
 frontend_uploads_dir.mkdir(parents=True, exist_ok=True)

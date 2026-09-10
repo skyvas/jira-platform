@@ -43,3 +43,9 @@ This document is maintained by the Dreaming Engine to record resolved bugs and p
 - **Symptoms:** Member and Viewer roles were able to create/start/complete sprints, modify custom board columns, create projects, and alter user roles.
 - **Root Cause:** Endpoints lacked explicit role checks beyond basic authentication.
 - **Rule:** All administrative and board-defining operations (`/api/sprints` lifecycle, `/api/board/{id}/columns`, `/api/projects`, `/api/users`, `/api/users/{id}/role`) must strictly enforce `require_admin()` yielding HTTP 403 Forbidden for non-Admin roles (`MEMBER`, `VIEWER`), and the frontend must hide/disable critical control surfaces for non-admins.
+
+## FP-008: Cloud Deployment Startup Crash & 500 Error Lacking DATABASE_URL / Health Probes
+- **Date:** 2026-09-10
+- **Symptoms:** Deploying the application to cloud runtimes (e.g. Wasmer, Render, Fly.io) resulted in HTTP 500 Internal Server Error.
+- **Root Cause:** Direct instantiation of `PostgresRepository()` on missing `DATABASE_URL` raised an unhandled `RuntimeError`, crashing the server on startup. Additionally, load balancer `HEAD` health probes returned 405 Method Not Allowed.
+- **Rule:** `backend/api/routes.py` and `app.py` must gracefully fall back to `OrbitStore` when `DATABASE_URL` is absent. `app.py` must support `HEAD` and `GET` on both `/` and `/health`, and a root `main.py` entrypoint with dynamic `$PORT` and `Dockerfile` must be provided for container runners.

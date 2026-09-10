@@ -25,3 +25,8 @@
 ## Notifications Engine
 - **Event Triggers:** Notifications must be dispatched for assignment, unassignment (old_assignee), mentions in comments, and issue status transitions.
 
+## Deployment & Cloud Execution Invariants
+- **Root Entrypoint:** Root `main.py` and `Procfile` expose the ASGI FastAPI app with dynamic `$PORT` and `0.0.0.0` binding.
+- **Health Probes:** `/health` and `/` endpoints must support both `GET` and `HEAD` methods with HTTP 200 responses.
+- **Persistence Fallback:** In the absence of a configured `DATABASE_URL`, the service gracefully initializes `OrbitStore` in memory with seeded demo accounts, preventing startup 500 crashes.
+
