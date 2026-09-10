@@ -5,6 +5,7 @@ from pathlib import Path
 import struct
 import threading
 import urllib.request
+import uuid
 import zlib
 import pytest
 
@@ -38,7 +39,12 @@ def make_test_png(color=(255, 0, 0), width=16, height=16) -> bytes:
 
 @pytest.fixture(scope="function")
 def live_server():
-    """Start an isolated HTTP server on an ephemeral OS-assigned port."""
+    """Start an isolated HTTP server on an ephemeral OS-assigned port, or use CLOUD_URL if specified."""
+    cloud_url = os.environ.get("CLOUD_URL")
+    if cloud_url:
+        yield cloud_url.rstrip("/")
+        return
+
     main.STATE = WasmerState()
     server = HTTPServer(("127.0.0.1", 0), WasmerEdgeHandler)
     host, port = server.server_address
@@ -75,13 +81,14 @@ def test_images(tmp_path):
 def login_admin(page: Page, base_url: str):
     """Log in as admin and wait for board to render."""
     page.goto(base_url, wait_until="load")
+    page.wait_for_selector("#kanban-board:visible, #standalone-login-form:visible", timeout=15000)
     login_form = page.locator("#standalone-login-form")
     if login_form.is_visible():
         page.fill("#standalone-username", "admin")
         page.fill("#standalone-password", "admin123")
         page.click("#btn-standalone-signin")
-    expect(page.locator("#kanban-board")).to_be_visible()
-    expect(page.locator(".issue-card").first).to_be_visible()
+    expect(page.locator("#kanban-board")).to_be_visible(timeout=15000)
+    expect(page.locator(".issue-card").first).to_be_visible(timeout=15000)
 
 
 def test_ticket_image_upload_association_and_persistence(live_server, test_images):
@@ -108,7 +115,7 @@ def test_ticket_image_upload_association_and_persistence(live_server, test_image
         page.set_input_files("#detail-upload-file", red_info["path"])
 
         # 3. Verify attachment card appears with exact filename
-        att_card = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=red_info["name"])
+        att_card = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=red_info["name"]).last
         expect(att_card).to_be_visible(timeout=5000)
 
         # 4. Verify file_url is not the hardcoded unsplash photo but a real static upload URL
@@ -126,8 +133,13 @@ def test_ticket_image_upload_association_and_persistence(live_server, test_image
 
         # 6. Reload page and re-open ticket to verify persistence
         page.reload(wait_until="load")
-        expect(page.locator("#kanban-board")).to_be_visible()
-        expect(page.locator(".issue-card").first).to_be_visible()
+        page.wait_for_selector("#kanban-board:visible, #standalone-login-form:visible", timeout=15000)
+        if page.locator("#standalone-login-form").is_visible():
+            page.fill("#standalone-username", "admin")
+            page.fill("#standalone-password", "admin123")
+            page.click("#btn-standalone-signin")
+        expect(page.locator("#kanban-board")).to_be_visible(timeout=15000)
+        expect(page.locator(".issue-card").first).to_be_visible(timeout=15000)
 
         # Reopen same ticket
         target_card = page.locator(".issue-card").filter(has_text=issue_key)
@@ -135,7 +147,7 @@ def test_ticket_image_upload_association_and_persistence(live_server, test_image
         expect(detail_modal).to_be_visible()
 
         # Attachment must still be present
-        persisted_att = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=red_info["name"])
+        persisted_att = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=red_info["name"]).last
         expect(persisted_att).to_be_visible()
 
         browser.close()
@@ -159,12 +171,12 @@ def test_sequential_different_image_uploads_no_mixup(live_server, test_images):
 
         # Upload image 1 (green)
         page.set_input_files("#detail-upload-file", green_info["path"])
-        green_card = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=green_info["name"])
+        green_card = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=green_info["name"]).last
         expect(green_card).to_be_visible(timeout=5000)
 
         # Upload image 2 (blue) sequentially
         page.set_input_files("#detail-upload-file", blue_info["path"])
-        blue_card = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=blue_info["name"])
+        blue_card = page.locator("#detail-attachments-grid .attachment-card").filter(has_text=blue_info["name"]).last
         expect(blue_card).to_be_visible(timeout=5000)
 
         # Verify distinct URLs
@@ -311,7 +323,7 @@ def test_critical_ticket_and_comment_regression_flows(live_server):
         page.click("#btn-create-issue")
         expect(page.locator("#create-modal")).to_be_visible()
 
-        new_title = "E2E Regression Critical Flow Ticket"
+        new_title = f"E2E Regression Flow {uuid.uuid4().hex[:8]}"
         page.fill("#issue-title", new_title)
         page.fill("#issue-desc", "Verifying ticket workflows remain completely healthy.")
         page.select_option("#issue-priority", "HIGH")
@@ -320,7 +332,7 @@ def test_critical_ticket_and_comment_regression_flows(live_server):
         expect(page.locator("#create-modal")).not_to_be_visible()
 
         # Verify card appears on board
-        created_card = page.locator(".issue-card").filter(has_text=new_title)
+        created_card = page.locator(".issue-card").filter(has_text=new_title).last
         expect(created_card).to_be_visible()
 
         # 2. Open created ticket
