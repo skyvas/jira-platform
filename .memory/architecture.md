@@ -29,6 +29,6 @@
 - **Root Entrypoint:** Root `main.py` and `Procfile` expose the ASGI FastAPI app with dynamic `$PORT` and `0.0.0.0` binding.
 - **Health Probes:** `/health` and `/` endpoints must support both `GET` and `HEAD` methods with HTTP 200 responses.
 - **Persistence Fallback:** In the absence of a configured `DATABASE_URL`, the service gracefully initializes `OrbitStore` in memory with seeded demo accounts, preventing startup 500 crashes.
-- **Wasmer Edge Dual-Mode Architecture:** In WebAssembly environments (`wasmer/python` / WASIX) where `uvicorn` and `pip` are unavailable, `main.py` gracefully shifts to Python's standard-library `http.server.HTTPServer` to serve the full frontend and mock API payloads without external dependencies.
+- **Wasmer Edge Dual-Mode Architecture:** In WebAssembly environments (`wasmer/python` / WASIX) where `uvicorn` and `pip` are unavailable, `main.py` gracefully shifts to Python's standard-library `http.server.HTTPServer` with a stateful in-memory store supporting full CRUD for issues, cards, sprints, and columns. All `/api/...` routes strictly return JSON (with 404 JSON for undefined endpoints) to guarantee client `fetch()` JSON deserialization never receives HTML.
 - **Edge Deployment Manifests:** Application deployment is governed by `app.yaml` (schema `wasmer.io/App.v0`), package definition `wasmer.toml`, and `.wasmerignore` to exclude local symlinks.
 

@@ -9,4 +9,5 @@
 - All web entrypoints (main.py) must support dual-mode execution with a zero-dependency fallback (e.g. standard library http.server) when ASGI servers (uvicorn) are absent in WebAssembly / edge sandboxes.
 - Separate production runtime dependencies in requirements.txt from build, test, and C-extension tools in requirements-dev.txt to preserve portability in edge/WASI environments.
 - Edge manifests (app.yaml, wasmer.toml, .wasmerignore) must be maintained at the repository root and validated against wasmer package build before committing.
+- Edge HTTP handlers must strictly partition API routes from SPA/static file fallback, ensuring every `/api/...` path returns JSON and never HTML, even on 404/500 errors.
 

@@ -16,3 +16,5 @@ venv/
 .logs/
 *.tmp
 .DS_Store
+frontend/uploads/*
+!frontend/uploads/.gitkeep

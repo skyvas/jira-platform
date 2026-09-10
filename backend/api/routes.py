@@ -290,6 +290,7 @@ def create_project(req: ProjectCreateRequest, request: Request):
 
 
 @router.put("/board/{project_id}/columns", response_model=Board)
+@router.post("/board/{project_id}/columns", response_model=Board)
 @router.patch("/projects/{project_id}/columns", response_model=Board)
 def update_project_columns(project_id: str, req: BoardColumnsUpdateRequest, request: Request):
     require_admin(request)
@@ -375,6 +376,7 @@ def update_issue(issue_id: str, req: UpdateIssueRequest, request: Request):
 
 
 @router.patch("/issues/{issue_id}/move", response_model=Issue)
+@router.post("/issues/{issue_id}/move", response_model=Issue)
 def move_issue(issue_id: str, req: MoveIssueRequest, request: Request):
     current_user = get_current_user_from_req(request)
     mover = current_user.username if current_user else None

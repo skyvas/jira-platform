@@ -540,7 +540,18 @@ class OrbitStore:
 
     def get_issue_by_id(self, issue_id: str) -> Optional[Issue]:
         with self._lock:
-            return self.issues.get(issue_id)
+            if issue_id in self.issues:
+                return self.issues[issue_id]
+            for issue in self.issues.values():
+                if issue.key.lower() == issue_id.lower() or issue.id.lower() == issue_id.lower():
+                    return issue
+            m = re.match(r"^iss-(\d+)$", issue_id, re.IGNORECASE)
+            if m:
+                num = m.group(1)
+                for issue in self.issues.values():
+                    if issue.key.endswith(f"-{num}"):
+                        return issue
+            return None
 
     def update_issue(
         self,

@@ -59,3 +59,11 @@ This document is maintained by the Dreaming Engine to record resolved bugs and p
   2. `app.yaml` (`cli_args: ["main.py"]`) and `wasmer.toml` (`main-args = ["main.py"]`) must execute `main.py` directly without `-m uvicorn`.
   3. `requirements.txt` must strictly contain pure-Python runtime dependencies, moving native C-extensions (`psycopg2-binary`) and browser test tooling (`playwright`, `pytest`) to `requirements-dev.txt`.
   4. Use `.wasmerignore` to exclude local virtual environment symlinks (`.venv/`) so the Wasmer package compiler passes verification without symlink containment errors.
+
+## FP-010: Edge Fallback Handler Serving HTML on Unmatched API Routes Causing UI Breakage
+- **Date:** 2026-09-10
+- **Symptoms:** On the live Wasmer deployment, clicking on Kanban cards, creating issues, moving cards, or modifying columns did not open modals or complete actions. Browser console logged: `SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON`.
+- **Root Cause:** In `main.py`, `WasmerEdgeHandler` only matched a small subset of API paths and routed any unmatched path to `frontend/index.html` with HTTP 200. When client JavaScript called `fetch('/api/issues/iss-1')` or `fetch('/api/board/.../columns')`, the server returned HTML instead of JSON. Calling `res.json()` threw an unhandled `SyntaxError`, preventing `#issue-detail-modal` from opening and breaking UI clicks.
+- **Rule:**
+  1. `WasmerEdgeHandler` must strictly guard all `/api/...` routes: any unrecognized API route must return JSON with HTTP 404 (`{"detail": "Not found"}`), never falling through to `index.html`.
+  2. The edge handler must provide a complete, stateful in-memory store supporting full CRUD for issues (`GET /api/issues/{id}`, `POST /api/issues`, `PATCH /api/issues/{id}`, `POST /api/issues/{id}/move`), comments, sprints, and custom columns so that all UI buttons and modal triggers operate interactively in zero-dependency environments.
