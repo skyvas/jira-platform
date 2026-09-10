@@ -49,3 +49,13 @@ This document is maintained by the Dreaming Engine to record resolved bugs and p
 - **Symptoms:** Deploying the application to cloud runtimes (e.g. Wasmer, Render, Fly.io) resulted in HTTP 500 Internal Server Error.
 - **Root Cause:** Direct instantiation of `PostgresRepository()` on missing `DATABASE_URL` raised an unhandled `RuntimeError`, crashing the server on startup. Additionally, load balancer `HEAD` health probes returned 405 Method Not Allowed.
 - **Rule:** `backend/api/routes.py` and `app.py` must gracefully fall back to `OrbitStore` when `DATABASE_URL` is absent. `app.py` must support `HEAD` and `GET` on both `/` and `/health`, and a root `main.py` entrypoint with dynamic `$PORT` and `Dockerfile` must be provided for container runners.
+
+## FP-009: Wasmer Edge WebAssembly Environment Lacking Pip/Uvicorn/SSL Support
+- **Date:** 2026-09-10
+- **Symptoms:** Deployment on Wasmer Edge (`*.wasmer.app`) exited with code 1: `/bin/python: No module named uvicorn` and HTTP 500.
+- **Root Cause:** Wasmer Edge runs a WebAssembly sandbox (`wasmer/python`) containing only the Python standard library. It does not run a `pip install` build step during GitHub deployments. Furthermore, `uvicorn` unconditionally imports `ssl`, which is missing in WASIX Python. Passing `-m uvicorn` via `cli_args` in `app.yaml` or `main-args` in `wasmer.toml` caused `/bin/python` to fail immediately on startup.
+- **Rule:**
+  1. Root `main.py` must implement a dual-mode universal runner: use `uvicorn` and FastAPI if available; otherwise gracefully fall back to Python's standard library `http.server.HTTPServer` with zero third-party dependencies to serve the frontend, health checks (`/health`), and JSON REST mock routes.
+  2. `app.yaml` (`cli_args: ["main.py"]`) and `wasmer.toml` (`main-args = ["main.py"]`) must execute `main.py` directly without `-m uvicorn`.
+  3. `requirements.txt` must strictly contain pure-Python runtime dependencies, moving native C-extensions (`psycopg2-binary`) and browser test tooling (`playwright`, `pytest`) to `requirements-dev.txt`.
+  4. Use `.wasmerignore` to exclude local virtual environment symlinks (`.venv/`) so the Wasmer package compiler passes verification without symlink containment errors.
