@@ -1,0 +1,25 @@
+[package]
+name = "jira-platform"
+version = "0.1.0"
+description = "Orbit Agile Project Management & Kanban Platform"
+license = "MIT"
+entrypoint = "web"
+
+[dependencies]
+"wasmer/python" = "^3.12"
+
+[fs]
+"/backend" = "backend"
+"/frontend" = "frontend"
+"/main.py" = "main.py"
+"/requirements.txt" = "requirements.txt"
+
+[[command]]
+name = "web"
+module = "wasmer/python:python"
+runner = "https://webc.org/runner/wasi"
+
+[command.annotations.wasi]
+atom = "wasmer/python:python"
+main-args = ["-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+env = ["PYTHONUNBUFFERED=1", "PORT=8000", "HOST=0.0.0.0"]
