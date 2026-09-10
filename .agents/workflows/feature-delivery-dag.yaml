@@ -1,0 +1,40 @@
+version: "1.0"
+name: "Orbit Agile: Feature Delivery Loop"
+
+nodes:
+  - id: feature-spec-planner
+    type: planner
+    prompt: "Formulate user story, acceptance criteria (Gherkin format), and API contract for the requested feature."
+    outputs: ["docs/specs/feature-spec.md"]
+    verification:
+      command: "echo 'Feature Spec validated'"
+
+  - id: feature-worker
+    type: worker
+    inputs: ["feature-spec-planner"]
+    worktree: true
+    prompt: "Implement feature logic, Pydantic schemas, and FastAPI endpoints inside an isolated Git worktree."
+    verification:
+      command: ".venv/bin/pytest tests/ -v"
+
+  - id: tdd-test-verifier
+    type: verifier
+    freshContext: true
+    inputs: ["feature-worker"]
+    prompt: "Verify strict compiler and test gates: verify new test coverage, check regression suite, and confirm exit code 0."
+    verification:
+      command: ".venv/bin/pytest tests/ -v"
+    gate: "blocking"
+
+  - id: architecture-memory-dream
+    type: dream
+    inputs: ["tdd-test-verifier"]
+    target: ".memory/architecture.md"
+    prompt: "Consolidate new API endpoints, schema definitions, and architectural invariants into .memory/architecture.md"
+
+  - id: synthesizer-merge
+    type: synthesizer
+    inputs: ["architecture-memory-dream"]
+    prompt: "Merge isolated worktree changes into the feature branch and execute full test verification suite."
+    verification:
+      command: ".venv/bin/pytest tests/ -v"

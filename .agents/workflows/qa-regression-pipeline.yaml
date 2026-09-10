@@ -1,0 +1,49 @@
+version: "1.0"
+name: "Orbit QA: Automated Regression & Verification Pipeline"
+
+nodes:
+  - id: test-matrix-planner
+    type: planner
+    prompt: "Generate regression test matrix covering API routes, state machine, and Playwright UI flows."
+    outputs: ["docs/specs/qa-matrix.md"]
+    verification:
+      command: "echo 'QA Matrix verified'"
+
+  - id: api-integration-worker
+    type: worker
+    inputs: ["test-matrix-planner"]
+    worktree: false
+    prompt: "Execute FastAPI endpoints and state machine regression tests."
+    verification:
+      command: ".venv/bin/pytest tests/ -k 'not playwright' -v"
+
+  - id: rbac-security-verifier
+    type: verifier
+    freshContext: true
+    inputs: ["api-integration-worker"]
+    prompt: "Verify RBAC boundaries: confirm MEMBER and VIEWER roles receive HTTP 403 on protected administrative operations."
+    verification:
+      command: ".venv/bin/pytest tests/test_role_permissions.py tests/test_auth_logout_guards.py -v"
+    gate: "blocking"
+
+  - id: playwright-ui-worker
+    type: worker
+    inputs: ["test-matrix-planner"]
+    worktree: false
+    prompt: "Execute Playwright browser smoke test suite against standalone login and Kanban board UI."
+    verification:
+      command: ".venv/bin/pytest tests/test_playwright_smoke.py -v"
+    gate: "advisory"
+
+  - id: memory-failure-dream
+    type: dream
+    inputs: ["rbac-security-verifier", "playwright-ui-worker"]
+    target: ".memory/failure-patterns.md"
+    prompt: "Consolidate edge case fixes and test failure signatures into .memory/failure-patterns.md"
+
+  - id: qa-synthesizer
+    type: synthesizer
+    inputs: ["memory-failure-dream"]
+    prompt: "Synthesize test execution results, verify exit code 0 across all test suites, and generate QA sign-off artifact."
+    verification:
+      command: ".venv/bin/pytest tests/ -v"

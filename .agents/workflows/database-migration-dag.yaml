@@ -1,0 +1,40 @@
+version: "1.0"
+name: "Orbit DB: Schema Migration & Persistence Verification"
+
+nodes:
+  - id: migration-planner
+    type: planner
+    prompt: "Design relational schema modifications, SQLite/PostgreSQL DDL, rollback paths, and Pydantic model updates."
+    outputs: ["docs/specs/migration-plan.md"]
+    verification:
+      command: "echo 'Migration Plan validated'"
+
+  - id: migration-worker
+    type: worker
+    inputs: ["migration-planner"]
+    worktree: true
+    prompt: "Implement repository updates, persistence schema adjustments, and in-memory store fallback compatibility."
+    verification:
+      command: ".venv/bin/pytest tests/test_postgres_support.py -v"
+
+  - id: persistence-verifier
+    type: verifier
+    freshContext: true
+    inputs: ["migration-worker"]
+    prompt: "Verify database invariants: zero startup crashes without DATABASE_URL, correct PostgreSQL env parsing, and edge store dual-mode."
+    verification:
+      command: ".venv/bin/pytest tests/test_postgres_support.py tests/test_wasmer_edge_handler.py -v"
+    gate: "blocking"
+
+  - id: schema-memory-dream
+    type: dream
+    inputs: ["persistence-verifier"]
+    target: ".memory/architecture.md"
+    prompt: "Document updated database invariants and storage constraints in .memory/architecture.md"
+
+  - id: migration-synthesizer
+    type: synthesizer
+    inputs: ["schema-memory-dream"]
+    prompt: "Merge migration worktree and run complete test verification suite."
+    verification:
+      command: ".venv/bin/pytest tests/ -v"
