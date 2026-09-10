@@ -15,17 +15,11 @@ env:
   PORT: "8000"
   PYTHONUNBUFFERED: "1"
 
-# Command arguments passed to the Python / ASGI runner
+# Execution arguments passed to the Python runtime
 cli_args:
-  - "-m"
-  - "uvicorn"
-  - "main:app"
-  - "--host"
-  - "0.0.0.0"
-  - "--port"
-  - "8000"
+  - "main.py"
 
-# Performance and boot optimization capabilities
+# Performance and cold-start optimization capabilities
 capabilities:
   instaboot:
     enabled: true
@@ -33,7 +27,7 @@ capabilities:
       - path: /health
       - path: /
 
-# Edge proxy automated health probes
+# Edge proxy automated health checks
 health_checks:
   - path: /health
     method: GET
