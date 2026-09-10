@@ -1,3 +1,46 @@
+# ==============================================================================
+# Wasmer Edge Application & Build Configuration
+# Schema: wasmer.io/App.v0
+# ==============================================================================
+
 kind: wasmer.io/App.v0
 name: jira-platform
 package: .
+debug: false
+force_https: true
+
+# Environment variables injected into the running Wasmer instance
+env:
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  PYTHONUNBUFFERED: "1"
+
+# Command arguments passed to the Python / ASGI runner
+cli_args:
+  - "-m"
+  - "uvicorn"
+  - "main:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "8000"
+
+# Performance and boot optimization capabilities
+capabilities:
+  instaboot:
+    enabled: true
+    requests:
+      - path: /health
+      - path: /
+
+# Edge proxy automated health probes
+health_checks:
+  - path: /health
+    method: GET
+    interval: 30
+    timeout: 5
+    healthy_threshold: 1
+    unhealthy_threshold: 3
+    expect:
+      status_codes:
+        - 200
