@@ -13,3 +13,6 @@
 - Workspace agent skills are maintained in `.agents/skills/<name>/SKILL.md` with Antigravity frontmatter and self-contained scripts/references.
 - Multi-agent orchestration and automated regression pipelines must be defined as declarative DAGs in `workflows/*.yaml` and validated via `python -m src.cli run-graph workflows/<dag>.yaml --dry-run`.
 - All autonomous worker nodes performing file mutations must specify `worktree: true` to enforce branch isolation outside protected branches.
+- File upload endpoints in all runtime layers must parse multipart/form-data and base64 payloads into isolated file storage (`uploads/`), returning clean static asset URLs and preserving exact binary integrity.
+- Image attachments in comment streams must render as compact thumbnail cards with `object-fit: contain` and visual type badges, triggering non-destructive Lightbox modals with Download actions that preserve the active ticket context upon dismissal.
+- End-to-end browser integration tests must be implemented using Playwright (`playwright.sync_api` with `chromium`), ensuring isolated fixture lifecycles, explicit selector verification, and binary file download validation.

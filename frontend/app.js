@@ -861,6 +861,15 @@ async function openIssueDetail(issueId) {
     const res = await fetch(`/api/issues/${issueId}`);
     if (!res.ok) return;
     activeIssueDetail = await res.json();
+
+    // Reset staged comment images and composer inputs
+    stagedCommentImages = [];
+    renderStagedCommentImages();
+    const commentInput = document.getElementById('comment-input');
+    if (commentInput) commentInput.value = '';
+    const detailFileInput = document.getElementById('detail-upload-file');
+    if (detailFileInput) detailFileInput.value = '';
+
     renderIssueDetailModal();
     document.getElementById('issue-detail-modal').style.display = 'flex';
   } catch (err) {
@@ -959,7 +968,7 @@ function renderDetailAttachments() {
     `;
 
     card.querySelector('.attachment-thumb').addEventListener('click', () => {
-      openLightbox(att.file_url, `${att.filename} • Uploaded by @${att.uploaded_by}`);
+      openLightbox(att.file_url, `${att.filename} • Uploaded by @${att.uploaded_by}`, att.filename);
     });
 
     card.querySelector('.attachment-del-btn').addEventListener('click', async (e) => {
@@ -1004,7 +1013,11 @@ function renderDetailComments() {
       imagesHtml = `<div class="comment-images-grid">` +
         c.images.map(imgUrl => `
           <div class="comment-img-card" data-url="${imgUrl}" title="Click to view full image">
-            <img src="${imgUrl}" alt="Comment image" loading="lazy">
+            <div class="comment-img-badge">
+              <svg class="svg-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              <span>Image</span>
+            </div>
+            <img src="${imgUrl}" alt="Comment image attachment" class="comment-img-thumb" loading="lazy">
           </div>
         `).join('') +
         `</div>`;
@@ -1022,7 +1035,7 @@ function renderDetailComments() {
 
     bubble.querySelectorAll('.comment-img-card').forEach(card => {
       card.addEventListener('click', () => {
-        openLightbox(card.dataset.url, 'Comment image');
+        openLightbox(card.dataset.url, 'Comment image attachment');
       });
     });
 
@@ -1042,11 +1055,54 @@ function insertMention(username) {
   textarea.focus();
 }
 
-function openLightbox(url, caption) {
+function renderStagedCommentImages() {
+  const stagingEl = document.getElementById('comment-img-staging');
+  if (!stagingEl) return;
+  stagingEl.innerHTML = '';
+  if (stagedCommentImages.length === 0) {
+    stagingEl.style.display = 'none';
+    return;
+  }
+  stagingEl.style.display = 'flex';
+  stagedCommentImages.forEach((imgUrl, idx) => {
+    const chip = document.createElement('div');
+    chip.className = 'staged-thumb-chip';
+    chip.innerHTML = `
+      <img src="${imgUrl}" alt="Staged image">
+      <button type="button" class="staged-thumb-remove" data-idx="${idx}">&times;</button>
+    `;
+    chip.querySelector('.staged-thumb-remove').onclick = () => {
+      stagedCommentImages.splice(idx, 1);
+      renderStagedCommentImages();
+    };
+    stagingEl.appendChild(chip);
+  });
+}
+
+let currentLightboxUrl = '';
+let currentLightboxFilename = '';
+
+function openLightbox(url, caption, filename) {
   const modal = document.getElementById('lightbox-modal');
+  currentLightboxUrl = url;
+
+  let cleanName = filename;
+  if (!cleanName && url) {
+    const rawName = url.split('/').pop().split('?')[0] || 'attachment.png';
+    cleanName = rawName.includes('_') ? rawName.substring(rawName.indexOf('_') + 1) : rawName;
+  }
+  currentLightboxFilename = cleanName || 'attachment.png';
+
   document.getElementById('lightbox-img').src = url;
-  document.getElementById('lightbox-caption').textContent = caption;
+  document.getElementById('lightbox-caption').textContent = caption || currentLightboxFilename;
   modal.style.display = 'flex';
+}
+
+function closeLightboxModal() {
+  const modal = document.getElementById('lightbox-modal');
+  if (modal) modal.style.display = 'none';
+  currentLightboxUrl = '';
+  currentLightboxFilename = '';
 }
 
 function syncIssueInList(updatedIssue) {
@@ -1895,6 +1951,12 @@ function setupEventListeners() {
   document.getElementById('detail-modal-close').addEventListener('click', () => {
     document.getElementById('issue-detail-modal').style.display = 'none';
     activeIssueDetail = null;
+    stagedCommentImages = [];
+    renderStagedCommentImages();
+    const commentInput = document.getElementById('comment-input');
+    if (commentInput) commentInput.value = '';
+    const detailFileInput = document.getElementById('detail-upload-file');
+    if (detailFileInput) detailFileInput.value = '';
   });
 
   // Add Tag in Detail Modal
@@ -1948,49 +2010,45 @@ function setupEventListeners() {
   document.getElementById('detail-upload-file').addEventListener('change', async (e) => {
     if (!e.target.files || !e.target.files[0] || !activeIssueDetail) return;
     const file = e.target.files[0];
+    const targetIssueId = activeIssueDetail.id;
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      const res = await fetch(`/api/issues/${activeIssueDetail.id}/attachments`, {
+      const res = await fetch(`/api/issues/${targetIssueId}/attachments`, {
         method: 'POST',
         body: formData
       });
       if (res.ok) {
         const att = await res.json();
-        activeIssueDetail.attachments.push(att);
-        renderDetailAttachments();
-        syncIssueInList(activeIssueDetail);
+        // Check if user is still on the same issue
+        if (activeIssueDetail && activeIssueDetail.id === targetIssueId) {
+          activeIssueDetail.attachments = activeIssueDetail.attachments || [];
+          activeIssueDetail.attachments.push(att);
+          renderDetailAttachments();
+          syncIssueInList(activeIssueDetail);
+        } else {
+          // If user switched ticket during upload, update the target ticket in allIssues
+          const target = allIssues.find(i => i.id === targetIssueId);
+          if (target) {
+            target.attachments = target.attachments || [];
+            target.attachments.push(att);
+            syncIssueInList(target);
+          }
+        }
+        showToast(`Attachment "${att.filename}" uploaded`, 'success');
+      } else {
+        showToast('Failed to upload attachment', 'error');
       }
     } catch (err) {
       console.error('Failed to upload attachment:', err);
+      showToast('Error uploading attachment', 'error');
+    } finally {
+      e.target.value = '';
     }
   });
 
-  // Staged Comment Images Helpers
-  function renderStagedCommentImages() {
-    const stagingEl = document.getElementById('comment-img-staging');
-    if (!stagingEl) return;
-    stagingEl.innerHTML = '';
-    if (stagedCommentImages.length === 0) {
-      stagingEl.style.display = 'none';
-      return;
-    }
-    stagingEl.style.display = 'flex';
-    stagedCommentImages.forEach((imgUrl, idx) => {
-      const chip = document.createElement('div');
-      chip.className = 'staged-thumb-chip';
-      chip.innerHTML = `
-        <img src="${imgUrl}" alt="Staged image">
-        <button type="button" class="staged-thumb-remove" data-idx="${idx}">&times;</button>
-      `;
-      chip.querySelector('.staged-thumb-remove').onclick = () => {
-        stagedCommentImages.splice(idx, 1);
-        renderStagedCommentImages();
-      };
-      stagingEl.appendChild(chip);
-    });
-  }
+  // Staged Comment Images Helpers (moved to top-level scope)
 
   const commentAttachBtn = document.getElementById('btn-comment-attach-img');
   const commentFileInput = document.getElementById('comment-img-file-input');
@@ -2011,8 +2069,11 @@ function setupEventListeners() {
           });
           if (res.ok) {
             const data = await res.json();
-            stagedCommentImages.push(data.file_url);
-            renderStagedCommentImages();
+            const imgUrl = data.file_url || data.url;
+            if (imgUrl) {
+              stagedCommentImages.push(imgUrl);
+              renderStagedCommentImages();
+            }
           } else {
             showToast('Failed to upload comment image', 'error');
           }
@@ -2059,9 +2120,63 @@ function setupEventListeners() {
     }
   });
 
-  // Lightbox close
-  document.getElementById('lightbox-close').addEventListener('click', () => {
-    document.getElementById('lightbox-modal').style.display = 'none';
+  // Lightbox download action
+  const lightboxDownloadBtn = document.getElementById('lightbox-download');
+  if (lightboxDownloadBtn) {
+    lightboxDownloadBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!currentLightboxUrl) return;
+
+      try {
+        const res = await fetch(currentLightboxUrl);
+        if (!res.ok) throw new Error('Fetch failed');
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = currentLightboxFilename || 'attachment.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } catch (err) {
+        const a = document.createElement('a');
+        a.href = currentLightboxUrl;
+        a.download = currentLightboxFilename || 'attachment.png';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    });
+  }
+
+  // Lightbox close action
+  const lightboxCloseBtn = document.getElementById('lightbox-close');
+  if (lightboxCloseBtn) {
+    lightboxCloseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeLightboxModal();
+    });
+  }
+
+  // Lightbox backdrop click to close
+  const lightboxModal = document.getElementById('lightbox-modal');
+  if (lightboxModal) {
+    lightboxModal.addEventListener('click', (e) => {
+      if (e.target === lightboxModal) {
+        closeLightboxModal();
+      }
+    });
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('lightbox-modal');
+      if (modal && modal.style.display !== 'none') {
+        closeLightboxModal();
+      }
+    }
   });
 
   // User Profile Modal (Self Name Change)

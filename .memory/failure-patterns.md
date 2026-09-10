@@ -82,3 +82,18 @@ This document is maintained by the Dreaming Engine to record resolved bugs and p
   2. `WasmerEdgeHandler` must enforce session cookies on `/api/auth/me` and protected endpoints like `/api/board`.
   3. Every issue creation, transition, assignment change, and comment mention must trigger notifications dispatched to `STATE.notifications` with explicit `type` values (`STATUS_CHANGE`, `ASSIGNED`, `UNASSIGNED`, `MENTION`, `COMMENT`, `UPDATE`).
   4. Ensure complete REST endpoint parity in `WasmerEdgeHandler` so zero-dependency edge runtimes behave identically to ASGI FastAPI.
+
+## FP-012: Ticket Image Upload Hardcoded Mocks, Scoping Errors, and Stale State Leakage
+- **Date:** 2026-09-10
+- **Symptoms:** Uploading an image to a ticket or comment attached an incorrect external Unsplash photo (`photo-1618005182384-a83a8bd57fbe`) rather than the user's local file. Sequential uploads could mix up or reuse state. In the comment stream, attached images lacked compact thumbnails and visual badges. Opening image previews closed or navigated away from the ticket modal, and clicking tickets occasionally failed with `ReferenceError: renderStagedCommentImages is not defined`.
+- **Root Cause:**
+  1. `main.py` WasmerEdgeHandler routes `/api/issues/{id}/attachments` and `/api/comments/upload-image` hardcoded static Unsplash URLs and dummy attachment names instead of decoding HTTP multipart/form-data or JSON base64 payloads.
+  2. `app.js` declared `renderStagedCommentImages` inside `DOMContentLoaded` instead of module scope, throwing a `ReferenceError` when `openIssueDetail` tried to reset staged comment images upon opening a ticket.
+  3. Asynchronous file input listeners did not reset file inputs within `finally` blocks, and modal closure did not purge staged comment images, causing state leakage across tickets.
+  4. Comment images lacked thumbnail formatting (`object-fit: contain`, badges) and lacked a dedicated non-destructive Lightbox modal with Download action.
+- **Rule:**
+  1. Upload endpoints in all runtime layers (`main.py` and `FastAPI`) must parse multipart/form-data and JSON payloads into distinct files saved under `frontend/uploads/{uuid}_{filename}`, returning deterministic `/static/uploads/...` URLs verified to match binary bytes.
+  2. All helper functions invoked by asynchronous data loaders (`renderStagedCommentImages`, `openLightbox`, etc.) must be defined in global/top-level scope.
+  3. Comment streams must render compact thumbnails (`object-fit: contain`, max dimensions 180x120) with attachment badges and open a dedicated Lightbox modal with Close and Download buttons that retains the parent ticket context upon closing.
+  4. File input elements must clear `e.target.value = ''` in `finally` blocks after upload requests resolve, and ticket modal open/close handlers must always purge staged state.
+
