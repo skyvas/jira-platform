@@ -25,12 +25,16 @@ app.add_middleware(
 
 app.include_router(router)
 
+@app.api_route("/health", methods=["GET", "HEAD"])
+def health_check():
+    return {"status": "ok", "app": "orbit"}
+
 frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
 uploads_dir = frontend_dir / "uploads"
 uploads_dir.mkdir(parents=True, exist_ok=True)
 if frontend_dir.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
-    @app.get("/")
+    @app.api_route("/", methods=["GET", "HEAD"])
     def serve_frontend():
         return FileResponse(str(frontend_dir / "index.html"))

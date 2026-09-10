@@ -359,3 +359,28 @@ def test_unassigned_notification():
     )
     assert sam_assign_notif is not None
 
+
+def test_health_and_root_endpoints():
+    """Verify /health and root endpoint support GET and HEAD methods for cloud deploy health checks."""
+    # 1. Health check GET and HEAD
+    res_health_get = client.get("/health")
+    assert res_health_get.status_code == 200
+    assert res_health_get.json() == {"status": "ok", "app": "orbit"}
+
+    res_health_head = client.head("/health")
+    assert res_health_head.status_code == 200
+
+    # 2. Root endpoint GET and HEAD
+    res_root_get = client.get("/")
+    assert res_root_get.status_code == 200
+
+    res_root_head = client.head("/")
+    assert res_root_head.status_code == 200
+
+
+def test_main_entrypoint_export():
+    """Verify main.py exports the ASGI FastAPI app."""
+    import main
+    assert hasattr(main, "app")
+    assert main.app.title == "Orbit API"
+
