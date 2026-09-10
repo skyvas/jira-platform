@@ -16,3 +16,4 @@
 - File upload endpoints in all runtime layers must parse multipart/form-data and base64 payloads into isolated file storage (`uploads/`), returning clean static asset URLs and preserving exact binary integrity.
 - Image attachments in comment streams must render as compact thumbnail cards with `object-fit: contain` and visual type badges, triggering non-destructive Lightbox modals with Download actions that preserve the active ticket context upon dismissal.
 - End-to-end browser integration tests must be implemented using Playwright (`playwright.sync_api` with `chromium`), ensuring isolated fixture lifecycles, explicit selector verification, and binary file download validation.
+- Specialized domain skills for system architecture, tech evaluation, migration, observability, UI frontend engineering, web accessibility (WCAG 2.2), UX research, and product discovery are cataloged in `.agents/skills/` with verified schemas and executable Python toolchains.
