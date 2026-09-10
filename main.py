@@ -1,11 +1,13 @@
 """Universal entrypoint supporting ASGI/Uvicorn runtimes and zero-dependency Wasmer Edge environments."""
 from datetime import datetime
+import hashlib
 import json
 import mimetypes
 import os
 from pathlib import Path
 import re
 import sys
+from typing import Any, Dict, List, Optional
 import urllib.parse
 import uuid
 
@@ -21,9 +23,28 @@ except ImportError:
 __all__ = ["app"] if app is not None else []
 
 
+def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
+    if not salt:
+        salt = uuid.uuid4().hex[:16]
+    pwd_hash = hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+    return pwd_hash, salt
+
+
+def verify_password(password: str, pwd_hash: str, salt: str) -> bool:
+    expected, _ = hash_password(password, salt)
+    return expected == pwd_hash
+
+
 # 2. Standalone in-memory state for Wasmer Edge WebAssembly execution
 class WasmerState:
     def __init__(self):
+        self.reset()
+
+    def reset(self):
+        admin_hash, admin_salt = hash_password("admin123")
+        alex_hash, alex_salt = hash_password("alex123")
+        sam_hash, sam_salt = hash_password("sam123")
+
         self.users = [
             {
                 "id": "user-admin",
@@ -31,7 +52,9 @@ class WasmerState:
                 "full_name": "System Admin",
                 "email": "admin@orbit.local",
                 "role": "ADMIN",
-                "avatar_url": "https://api.dicebear.com/7.x/bottts/svg?seed=admin"
+                "avatar_url": "https://api.dicebear.com/7.x/bottts/svg?seed=admin",
+                "password_hash": admin_hash,
+                "password_salt": admin_salt
             },
             {
                 "id": "user-alex",
@@ -39,7 +62,9 @@ class WasmerState:
                 "full_name": "Alex Chen",
                 "email": "alex@orbit.local",
                 "role": "MEMBER",
-                "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=alex"
+                "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=alex",
+                "password_hash": alex_hash,
+                "password_salt": alex_salt
             },
             {
                 "id": "user-sam",
@@ -47,9 +72,12 @@ class WasmerState:
                 "full_name": "Sam Taylor",
                 "email": "sam@orbit.local",
                 "role": "VIEWER",
-                "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=sam"
+                "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=sam",
+                "password_hash": sam_hash,
+                "password_salt": sam_salt
             }
         ]
+        self.sessions: Dict[str, dict] = {}
         self.projects = [
             {
                 "id": "proj-proj",
@@ -129,6 +157,7 @@ class WasmerState:
                 "assignee": "admin",
                 "tags": ["core", "architecture"],
                 "sprint_id": "sprint-1",
+                "resolved_at": "2026-09-10T00:00:00Z",
                 "attachments": [],
                 "comments": [
                     {
@@ -203,17 +232,143 @@ class WasmerState:
             {
                 "id": "notif-1",
                 "user_id": "user-admin",
+                "user_username": "admin",
                 "username": "admin",
+                "type": "STATUS_CHANGE",
                 "title": "Welcome to Orbit",
                 "message": "Platform running on Wasmer Edge with zero-dependency runtime.",
                 "read": False,
                 "issue_id": "iss-1",
+                "issue_key": "PROJ-1",
                 "created_at": "2026-09-10T00:00:00Z"
+            },
+            {
+                "id": "notif-2",
+                "user_id": "user-alex",
+                "user_username": "alex",
+                "username": "alex",
+                "type": "ASSIGNED",
+                "title": "Assigned to PROJ-2",
+                "message": "You were assigned to PROJ-2: 'Implement LexoRank Fractional Indexing'",
+                "read": False,
+                "issue_id": "iss-2",
+                "issue_key": "PROJ-2",
+                "created_at": "2026-09-10T01:00:00Z"
             }
         ]
 
-    def find_issue(self, issue_id: str):
-        target = issue_id.strip()
+    def clean_user(self, u: dict) -> dict:
+        return {k: v for k, v in u.items() if not k.startswith("password_")}
+
+    def clean_users(self) -> List[dict]:
+        return [self.clean_user(u) for u in self.users]
+
+    def authenticate(self, username: str, password: str) -> Optional[dict]:
+        u_clean = (username or "").lower().strip()
+        for u in self.users:
+            if u["username"].lower() == u_clean:
+                pwd_hash = u.get("password_hash")
+                salt = u.get("password_salt")
+                if pwd_hash and salt:
+                    if verify_password(password, pwd_hash, salt):
+                        return u
+                elif password == f"{u_clean}123":
+                    return u
+        return None
+
+    def create_session(self, user_id: str) -> str:
+        token = uuid.uuid4().hex + uuid.uuid4().hex
+        self.sessions[token] = {
+            "user_id": user_id,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        return token
+
+    def get_session_user(self, token: Optional[str]) -> Optional[dict]:
+        if not token or token not in self.sessions:
+            return None
+        user_id = self.sessions[token]["user_id"]
+        for u in self.users:
+            if u["id"] == user_id or u["username"].lower() == user_id.lower():
+                return self.clean_user(u)
+        return None
+
+    def delete_session(self, token: Optional[str]) -> bool:
+        if token and token in self.sessions:
+            del self.sessions[token]
+            return True
+        return False
+
+    def create_notification(
+        self,
+        username: str,
+        notif_type: str,
+        title: str,
+        message: str,
+        issue_id: str,
+        issue_key: str
+    ) -> dict:
+        u_clean = username.lower().strip().lstrip("@")
+        notif = {
+            "id": f"notif-{uuid.uuid4().hex[:8]}",
+            "user_id": f"user-{u_clean}",
+            "user_username": u_clean,
+            "username": u_clean,
+            "type": notif_type,
+            "title": title,
+            "message": message,
+            "issue_id": issue_id,
+            "issue_key": issue_key,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "read": False
+        }
+        self.notifications.insert(0, notif)
+        return notif
+
+    def get_user_notifications(self, username: str) -> List[dict]:
+        u_clean = username.lower().strip().lstrip("@")
+        return [
+            n for n in self.notifications
+            if n.get("username", "").lower() == u_clean or n.get("user_username", "").lower() == u_clean
+        ]
+
+    def toggle_notification_read(self, notif_id: str, read_val: Optional[bool] = None) -> Optional[dict]:
+        for n in self.notifications:
+            if n["id"] == notif_id:
+                if read_val is not None:
+                    n["read"] = bool(read_val)
+                else:
+                    n["read"] = not n.get("read", False)
+                return n
+        return None
+
+    def mark_all_notifications_read(self, username: str) -> int:
+        u_clean = username.lower().strip().lstrip("@")
+        count = 0
+        for n in self.notifications:
+            if (n.get("username", "").lower() == u_clean or n.get("user_username", "").lower() == u_clean) and not n.get("read", False):
+                n["read"] = True
+                count += 1
+        return count
+
+    def get_sprint_summary(self, sprint_id: str) -> Optional[dict]:
+        sprint = next((s for s in self.sprints if s["id"] == sprint_id), None)
+        if not sprint:
+            return None
+        sprint_issues = [i for i in self.issues if i.get("sprint_id") == sprint_id]
+        completed = [i for i in sprint_issues if i.get("status") == "DONE"]
+        incomplete = [i for i in sprint_issues if i.get("status") != "DONE"]
+        pct = round((len(completed) / len(sprint_issues) * 100), 1) if sprint_issues else 0.0
+        return {
+            "sprint": sprint,
+            "total_issues": len(sprint_issues),
+            "completed_count": len(completed),
+            "incomplete_count": len(incomplete),
+            "completion_percentage": pct
+        }
+
+    def find_issue(self, issue_id: str) -> Optional[dict]:
+        target = str(issue_id).strip()
         for i in self.issues:
             if i.get("id") == target or i.get("key", "").lower() == target.lower():
                 return i
@@ -244,7 +399,7 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         sys.stderr.write(f"[WasmerEdge] {self.address_string()} - {format % args}\n")
 
-    def _send_json(self, data, status: int = 200):
+    def _send_json(self, data, status: int = 200, cookies: Optional[List[str]] = None):
         body = json.dumps(data, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -252,6 +407,9 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD")
+        if cookies:
+            for c in cookies:
+                self.send_header("Set-Cookie", c)
         self.end_headers()
         self.wfile.write(body)
 
@@ -264,6 +422,24 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         return {}
+
+    def _get_token(self) -> Optional[str]:
+        cookie_header = self.headers.get("Cookie", "")
+        if cookie_header:
+            parts = cookie_header.split(";")
+            for part in parts:
+                if "=" in part:
+                    k, v = part.strip().split("=", 1)
+                    if k in ("session_id", "jira_session"):
+                        return v.strip()
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header.split(" ", 1)[1].strip()
+        return None
+
+    def _get_current_user(self) -> Optional[dict]:
+        token = self._get_token()
+        return STATE.get_session_user(token)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -291,13 +467,17 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             self._send_json({"status": "ok", "app": "orbit", "runtime": "wasmer-edge"})
             return
 
-        # Auth & Users
+        # Auth & Current User
         if raw_path == "/api/auth/me":
-            self._send_json(STATE.users[0])
+            user = self._get_current_user()
+            if not user:
+                self._send_json({"detail": "Not authenticated"}, 401)
+                return
+            self._send_json(user, 200)
             return
 
         if raw_path == "/api/users":
-            self._send_json(STATE.users)
+            self._send_json(STATE.clean_users())
             return
 
         # Projects
@@ -307,6 +487,10 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
 
         # Board
         if raw_path == "/api/board":
+            user = self._get_current_user()
+            if not user:
+                self._send_json({"detail": "Authentication required to view Kanban board"}, 401)
+                return
             proj_id = query_params.get("project_id", ["proj-proj"])[0]
             proj = next((p for p in STATE.projects if p["id"] == proj_id), STATE.projects[0])
             cols = STATE.columns.get(proj_id, STATE.default_columns)
@@ -328,10 +512,31 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             self._send_json(STATE.sprint_history)
             return
 
+        m_sprint_sum = re.match(r"^/api/sprints/([^/]+)/summary$", raw_path)
+        if m_sprint_sum:
+            sprint_id = m_sprint_sum.group(1)
+            summary = STATE.get_sprint_summary(sprint_id)
+            if not summary:
+                self._send_json({"detail": "Sprint not found"}, 404)
+                return
+            self._send_json(summary, 200)
+            return
+
         if raw_path == "/api/sprints":
             proj_id = query_params.get("project_id", [None])[0]
             sprints = [s for s in STATE.sprints if not proj_id or s.get("project_id") == proj_id]
             self._send_json(sprints)
+            return
+
+        # Comments on Issue
+        m_comm_get = re.match(r"^/api/issues/([^/]+)/comments$", raw_path)
+        if m_comm_get:
+            issue_id = m_comm_get.group(1)
+            issue = STATE.find_issue(issue_id)
+            if not issue:
+                self._send_json({"detail": "Issue not found"}, 404)
+                return
+            self._send_json(issue.get("comments", []), 200)
             return
 
         # Issues
@@ -354,7 +559,14 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
 
         # Notifications
         if raw_path == "/api/notifications":
-            self._send_json(STATE.notifications)
+            caller = self._get_current_user()
+            query_user = query_params.get("username", [None])[0]
+            target_user = query_user or (caller["username"] if caller else None)
+            if target_user:
+                notifs = STATE.get_user_notifications(target_user)
+            else:
+                notifs = STATE.notifications
+            self._send_json(notifs, 200)
             return
 
         # Strictly block undefined /api/... paths from returning index.html
@@ -402,13 +614,30 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
 
         if raw_path == "/api/auth/login":
             body = self._read_json()
-            username = (body.get("username") or "admin").lower()
-            user = next((u for u in STATE.users if u["username"].lower() == username), STATE.users[0])
-            self._send_json(user, 200)
+            username = (body.get("username") or "").strip()
+            password = (body.get("password") or "").strip()
+            user = STATE.authenticate(username, password)
+            if not user:
+                self._send_json({"detail": "Invalid username or password"}, 401)
+                return
+
+            token = STATE.create_session(user["id"])
+            cookies = [
+                f"session_id={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+                f"jira_session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800"
+            ]
+            self._send_json(STATE.clean_user(user), 200, cookies=cookies)
             return
 
         if raw_path == "/api/auth/logout":
-            self._send_json({"status": "ok", "message": "Logged out successfully"}, 200)
+            token = self._get_token()
+            if token:
+                STATE.delete_session(token)
+            cookies = [
+                "session_id=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+                "jira_session=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+            ]
+            self._send_json({"status": "ok", "message": "Logged out successfully"}, 200, cookies=cookies)
             return
 
         if raw_path == "/api/projects":
@@ -440,6 +669,7 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             proj = next((p for p in STATE.projects if p["id"] == proj_id), STATE.projects[0])
             issue_key = f"{proj['key']}-{STATE.issue_counter}"
             issue_id = f"iss-{STATE.issue_counter}"
+            assignee = body.get("assignee")
             new_issue = {
                 "id": issue_id,
                 "key": issue_key,
@@ -450,12 +680,24 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                 "status": body.get("status", "TODO"),
                 "priority": body.get("priority", "MEDIUM"),
                 "rank": f"0|i{STATE.issue_counter:05d}:",
-                "assignee": body.get("assignee"),
+                "assignee": assignee,
                 "tags": body.get("tags", []),
                 "attachments": [],
                 "comments": []
             }
             STATE.issues.append(new_issue)
+
+            # Trigger assignment notification if assigned on creation
+            if assignee:
+                STATE.create_notification(
+                    username=assignee,
+                    notif_type="ASSIGNED",
+                    title=f"Assigned to {issue_key}",
+                    message=f"You were assigned to {issue_key}: '{new_issue['title']}'",
+                    issue_id=issue_id,
+                    issue_key=issue_key
+                )
+
             self._send_json(new_issue, 201)
             return
 
@@ -467,9 +709,30 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                 self._send_json({"detail": "Issue not found"}, 404)
                 return
             body = self._read_json()
+            caller = self._get_current_user()
+            mover = caller["username"] if caller else "admin"
+
+            old_status = issue.get("status")
             new_status = body.get("new_status")
-            if new_status:
+            if new_status and new_status != old_status:
                 issue["status"] = new_status
+                if new_status == "DONE":
+                    issue["resolved_at"] = datetime.utcnow().isoformat() + "Z"
+                elif old_status == "DONE":
+                    issue.pop("resolved_at", None)
+
+                # Trigger status change notification
+                assignee = issue.get("assignee")
+                if assignee and assignee.lower() != mover.lower():
+                    STATE.create_notification(
+                        username=assignee,
+                        notif_type="STATUS_CHANGE",
+                        title=f"Status Change: {issue['key']}",
+                        message=f"{issue['key']} was moved from {old_status} to {new_status} by {mover}.",
+                        issue_id=issue["id"],
+                        issue_key=issue["key"]
+                    )
+
             if body.get("next_rank"):
                 issue["rank"] = body["next_rank"]
             self._send_json(issue, 200)
@@ -483,17 +746,57 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                 self._send_json({"detail": "Issue not found"}, 404)
                 return
             body = self._read_json()
+            caller = self._get_current_user()
+            author_username = caller["username"] if caller else (body.get("author_username") or "admin")
+            author_name = caller["full_name"] if caller else (body.get("author_name") or "System Admin")
+            author_role = caller["role"] if caller else (body.get("author_role") or "ADMIN")
+            content = body.get("content", "")
+
+            # Extract @mentions
+            mention_matches = re.findall(r"@([a-zA-Z0-9_-]+)", content)
+            mentions = list(set([m.lower() for m in mention_matches]))
+
             new_comm = {
                 "id": f"comm-{uuid.uuid4().hex[:8]}",
                 "issue_id": issue["id"],
-                "author_username": "admin",
-                "author_name": "System Admin",
-                "author_role": "ADMIN",
-                "content": body.get("content", ""),
+                "author_username": author_username,
+                "author_name": author_name,
+                "author_role": author_role,
+                "content": content,
+                "mentions": mentions,
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "images": body.get("images", [])
             }
             issue.setdefault("comments", []).append(new_comm)
+
+            snippet = content[:60] + "..." if len(content) > 60 else content
+
+            # Notify mentioned users
+            for m in mentions:
+                if m != author_username.lower():
+                    STATE.create_notification(
+                        username=m,
+                        notif_type="MENTION",
+                        title=f"{author_name} mentioned you in {issue['key']}",
+                        message=f"{author_name} tagged you: \"{snippet}\"",
+                        issue_id=issue["id"],
+                        issue_key=issue["key"]
+                    )
+
+            # Notify assignee if not mentioned and not author
+            assignee = issue.get("assignee")
+            if assignee:
+                assignee_clean = assignee.lower().lstrip("@")
+                if assignee_clean != author_username.lower() and assignee_clean not in mentions:
+                    STATE.create_notification(
+                        username=assignee_clean,
+                        notif_type="COMMENT",
+                        title=f"New comment on {issue['key']}",
+                        message=f"{author_name} commented on {issue['key']}: \"{snippet}\"",
+                        issue_id=issue["id"],
+                        issue_key=issue["key"]
+                    )
+
             self._send_json(new_comm, 201)
             return
 
@@ -510,6 +813,20 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                 "file_url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800"
             }
             issue.setdefault("attachments", []).append(att)
+
+            caller = self._get_current_user()
+            uploader = caller["username"] if caller else "admin"
+            assignee = issue.get("assignee")
+            if assignee and assignee.lower() != uploader.lower():
+                STATE.create_notification(
+                    username=assignee,
+                    notif_type="UPDATE",
+                    title=f"New Attachment: {issue['key']}",
+                    message=f"{uploader} uploaded attachment to {issue['key']}.",
+                    issue_id=issue["id"],
+                    issue_key=issue["key"]
+                )
+
             self._send_json(att, 201)
             return
 
@@ -572,33 +889,39 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
         m_notif = re.match(r"^/api/notifications/([^/]+)/toggle-read$", raw_path)
         if m_notif:
             notif_id = m_notif.group(1)
-            notif = next((n for n in STATE.notifications if n["id"] == notif_id), None)
+            body = self._read_json()
+            read_val = body.get("read") if "read" in body else None
+            notif = STATE.toggle_notification_read(notif_id, read_val)
             if not notif:
                 self._send_json({"detail": "Notification not found"}, 404)
                 return
-            notif["read"] = not notif.get("read", False)
             self._send_json(notif, 200)
             return
 
         if raw_path == "/api/notifications/mark-all-read":
-            for n in STATE.notifications:
-                n["read"] = True
-            self._send_json({"status": "ok", "marked_count": len(STATE.notifications)}, 200)
+            caller = self._get_current_user()
+            username = caller["username"] if caller else "admin"
+            count = STATE.mark_all_notifications_read(username)
+            self._send_json({"status": "ok", "marked_count": count}, 200)
             return
 
         if raw_path == "/api/users":
             body = self._read_json()
             username = (body.get("username") or "user").strip()
+            password = body.get("password") or f"{username.lower()}123"
+            pwd_hash, salt = hash_password(password)
             new_user = {
                 "id": f"user-{username.lower()}",
                 "username": username,
                 "full_name": body.get("full_name", username),
                 "email": body.get("email", f"{username}@orbit.local"),
                 "role": body.get("role", "MEMBER"),
-                "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={username}"
+                "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={username}",
+                "password_hash": pwd_hash,
+                "password_salt": salt
             }
             STATE.users.append(new_user)
-            self._send_json(new_user, 201)
+            self._send_json(STATE.clean_user(new_user), 201)
             return
 
         if raw_path.startswith("/api/"):
@@ -638,9 +961,29 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                 self._send_json({"detail": "Issue not found"}, 404)
                 return
             body = self._read_json()
+            caller = self._get_current_user()
+            mover = caller["username"] if caller else "admin"
+
+            old_status = issue.get("status")
             new_status = body.get("new_status")
-            if new_status:
+            if new_status and new_status != old_status:
                 issue["status"] = new_status
+                if new_status == "DONE":
+                    issue["resolved_at"] = datetime.utcnow().isoformat() + "Z"
+                elif old_status == "DONE":
+                    issue.pop("resolved_at", None)
+
+                assignee = issue.get("assignee")
+                if assignee and assignee.lower() != mover.lower():
+                    STATE.create_notification(
+                        username=assignee,
+                        notif_type="STATUS_CHANGE",
+                        title=f"Status Change: {issue['key']}",
+                        message=f"{issue['key']} was moved from {old_status} to {new_status} by {mover}.",
+                        issue_id=issue["id"],
+                        issue_key=issue["key"]
+                    )
+
             if body.get("next_rank"):
                 issue["rank"] = body["next_rank"]
             self._send_json(issue, 200)
@@ -654,9 +997,57 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                 self._send_json({"detail": "Issue not found"}, 404)
                 return
             body = self._read_json()
-            for field in ("title", "description", "priority", "status", "assignee", "tags", "sprint_id"):
+            caller = self._get_current_user()
+            updater = caller["username"] if caller else "admin"
+
+            old_assignee = issue.get("assignee")
+            old_status = issue.get("status")
+
+            for field in ("title", "description", "priority", "tags", "sprint_id"):
                 if field in body:
                     issue[field] = body[field]
+
+            if "status" in body and body["status"] != old_status:
+                new_status = body["status"]
+                issue["status"] = new_status
+                if new_status == "DONE":
+                    issue["resolved_at"] = datetime.utcnow().isoformat() + "Z"
+                elif old_status == "DONE":
+                    issue.pop("resolved_at", None)
+
+                assignee = issue.get("assignee")
+                if assignee and assignee.lower() != updater.lower():
+                    STATE.create_notification(
+                        username=assignee,
+                        notif_type="STATUS_CHANGE",
+                        title=f"Status Change: {issue['key']}",
+                        message=f"{issue['key']} was moved from {old_status} to {new_status} by {updater}.",
+                        issue_id=issue["id"],
+                        issue_key=issue["key"]
+                    )
+
+            if "assignee" in body and body["assignee"] != old_assignee:
+                new_assignee = body["assignee"]
+                issue["assignee"] = new_assignee
+                if new_assignee:
+                    STATE.create_notification(
+                        username=new_assignee,
+                        notif_type="ASSIGNED",
+                        title=f"Assigned to {issue['key']}",
+                        message=f"You were assigned to {issue['key']}: '{issue['title']}'",
+                        issue_id=issue["id"],
+                        issue_key=issue["key"]
+                    )
+                if old_assignee:
+                    STATE.create_notification(
+                        username=old_assignee,
+                        notif_type="UNASSIGNED",
+                        title=f"Unassigned from {issue['key']}",
+                        message=f"You were unassigned from {issue['key']}: '{issue['title']}' by {updater}.",
+                        issue_id=issue["id"],
+                        issue_key=issue["key"]
+                    )
+
             self._send_json(issue, 200)
             return
 
@@ -670,7 +1061,7 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             body = self._read_json()
             if "role" in body:
                 user["role"] = body["role"]
-            self._send_json(user, 200)
+            self._send_json(STATE.clean_user(user), 200)
             return
 
         m_name = re.match(r"^/api/users/([^/]+)/name$", raw_path)
@@ -683,7 +1074,7 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             body = self._read_json()
             if "full_name" in body:
                 user["full_name"] = body["full_name"]
-            self._send_json(user, 200)
+            self._send_json(STATE.clean_user(user), 200)
             return
 
         m_pwd = re.match(r"^/api/users/([^/]+)/password$", raw_path)
@@ -693,7 +1084,15 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             if not user:
                 self._send_json({"detail": "User not found"}, 404)
                 return
-            self._send_json(user, 200)
+            body = self._read_json()
+            new_pwd = body.get("new_password")
+            if not new_pwd or len(new_pwd) < 4:
+                self._send_json({"detail": "Password must be at least 4 characters"}, 400)
+                return
+            pwd_hash, salt = hash_password(new_pwd)
+            user["password_hash"] = pwd_hash
+            user["password_salt"] = salt
+            self._send_json(STATE.clean_user(user), 200)
             return
 
         m_proj_cols = re.match(r"^/api/projects/([^/]+)/columns$", raw_path)
@@ -708,11 +1107,12 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
         m_notif = re.match(r"^/api/notifications/([^/]+)/toggle-read$", raw_path)
         if m_notif:
             notif_id = m_notif.group(1)
-            notif = next((n for n in STATE.notifications if n["id"] == notif_id), None)
+            body = self._read_json()
+            read_val = body.get("read") if "read" in body else None
+            notif = STATE.toggle_notification_read(notif_id, read_val)
             if not notif:
                 self._send_json({"detail": "Notification not found"}, 404)
                 return
-            notif["read"] = not notif.get("read", False)
             self._send_json(notif, 200)
             return
 
@@ -733,6 +1133,17 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             if issue and "attachments" in issue:
                 issue["attachments"] = [a for a in issue["attachments"] if a.get("id") != att_id]
             self._send_json({"status": "deleted"}, 200)
+            return
+
+        m_del_issue = re.match(r"^/api/issues/([^/]+)$", raw_path)
+        if m_del_issue:
+            issue_id = m_del_issue.group(1)
+            issue = STATE.find_issue(issue_id)
+            if not issue:
+                self._send_json({"detail": "Issue not found"}, 404)
+                return
+            STATE.issues = [i for i in STATE.issues if i.get("id") != issue["id"]]
+            self._send_json({"status": "deleted", "id": issue["id"]}, 200)
             return
 
         if raw_path.startswith("/api/"):

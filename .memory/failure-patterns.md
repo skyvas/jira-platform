@@ -67,3 +67,18 @@ This document is maintained by the Dreaming Engine to record resolved bugs and p
 - **Rule:**
   1. `WasmerEdgeHandler` must strictly guard all `/api/...` routes: any unrecognized API route must return JSON with HTTP 404 (`{"detail": "Not found"}`), never falling through to `index.html`.
   2. The edge handler must provide a complete, stateful in-memory store supporting full CRUD for issues (`GET /api/issues/{id}`, `POST /api/issues`, `PATCH /api/issues/{id}`, `POST /api/issues/{id}/move`), comments, sprints, and custom columns so that all UI buttons and modal triggers operate interactively in zero-dependency environments.
+
+## FP-011: Wasmer Edge Runtime Parity Gaps for Authentication and Notification Systems
+- **Date:** 2026-09-10
+- **Symptoms:** On the live Wasmer deployment, users could not log out (reloading immediately logged them back in as Admin), user switching failed, invalid passwords were accepted, notifications did not update when issues moved or comments with mentions were posted, notifications lacked type icons, and `/api/issues/{id}/comments` returned 404.
+- **Root Cause:**
+  1. `main.py` `WasmerEdgeHandler` unconditionally returned `STATE.users[0]` (Admin) on `GET /api/auth/me` without checking cookies.
+  2. `POST /api/auth/login` did not validate passwords against hash/salt and did not emit `Set-Cookie` headers for `session_id`/`jira_session`.
+  3. `POST /api/auth/logout` did not destroy active sessions or expire client cookies.
+  4. Initial notifications lacked the `type` attribute needed for SVG rendering, and zero notifications were dispatched when issues were created, assigned, transitioned, or commented on.
+  5. Missing REST endpoints in `main.py` (`GET /api/issues/{id}/comments`, `GET /api/sprints/{id}/summary`, `DELETE /api/issues/{id}`).
+- **Rule:**
+  1. `WasmerState` must support standard library `hashlib.sha256` password hashing, tokenized session management (`STATE.sessions`), and user notification filtering.
+  2. `WasmerEdgeHandler` must enforce session cookies on `/api/auth/me` and protected endpoints like `/api/board`.
+  3. Every issue creation, transition, assignment change, and comment mention must trigger notifications dispatched to `STATE.notifications` with explicit `type` values (`STATUS_CHANGE`, `ASSIGNED`, `UNASSIGNED`, `MENTION`, `COMMENT`, `UPDATE`).
+  4. Ensure complete REST endpoint parity in `WasmerEdgeHandler` so zero-dependency edge runtimes behave identically to ASGI FastAPI.
