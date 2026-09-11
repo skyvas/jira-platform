@@ -97,3 +97,14 @@ This document is maintained by the Dreaming Engine to record resolved bugs and p
   3. Comment streams must render compact thumbnails (`object-fit: contain`, max dimensions 180x120) with attachment badges and open a dedicated Lightbox modal with Close and Download buttons that retains the parent ticket context upon closing.
   4. File input elements must clear `e.target.value = ''` in `finally` blocks after upload requests resolve, and ticket modal open/close handlers must always purge staged state.
 
+## FP-013: SSE Test Runner Deadlock on Infinite Stream Generators
+- **Date:** 2026-09-10
+- **Symptoms:** Running `pytest` on tests invoking `client.stream("GET", "/api/events")` or reading lines hung indefinitely.
+- **Root Cause:** Starlette `TestClient` executes ASGI requests in an in-memory loop. An infinite `while True:` SSE event generator blocks synchronous stream consumers because `request.is_disconnected()` is only evaluated when the client closes the connection, but reading chunks blocks awaiting new queue items.
+- **Rule:** Provide an optional query probe parameter (e.g., `?once=true`) on SSE endpoints allowing test runners and diagnostic probes to consume the initial handshake event and terminate immediately without blocking. Test event broadcaster queues independently via `broadcaster.subscribe()` and `get_nowait()`.
+
+## FP-014: Incomplete Acceptance Checklists Bypassing State Machine Resolution
+- **Date:** 2026-09-10
+- **Symptoms:** Tickets with unmet acceptance criteria could be moved directly into DONE column, bypassing definition-of-done requirements.
+- **Root Cause:** `StateMachine.transition_issue` only validated graph connectivity and column adjacencies, omitting domain-level acceptance criteria verification.
+- **Rule:** Transitioning to `DONE` must inspect `issue.checklist` and reject transitions with HTTP 400 (`InvalidTransitionError`) if any checklist item has `completed == False`.

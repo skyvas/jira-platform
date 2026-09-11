@@ -96,6 +96,17 @@ class StateMachine:
                 f"Cannot transition issue {issue.key} from {f_norm} to {t_norm}."
             )
 
+        if t_norm == "DONE":
+            checklist = getattr(issue, "checklist", None) or []
+            incomplete = [
+                item for item in checklist
+                if not (getattr(item, "completed", False) or getattr(item, "is_completed", False))
+            ]
+            if incomplete:
+                raise InvalidTransitionError(
+                    f"Cannot resolve issue {issue.key}: all acceptance checklist items must be completed before moving to DONE ({len(incomplete)} incomplete)."
+                )
+
         now = datetime.utcnow()
         # Preserve enum if standard status, otherwise string
         try:

@@ -28,17 +28,80 @@ from backend.models.domain import (
 from backend.services.jira_store import OrbitStore
 
 
+import urllib.parse
+
+
 def get_database_url() -> str:
-    """Return the configured PostgreSQL URL or raise if missing."""
+    """Return the configured PostgreSQL URL or raise if missing.
+
+    Supports direct connection strings (DATABASE_URL, POSTGRES_DATABASE_URL, POSTGRES_URL)
+    or discrete environment variables (HOST, PORT, NAME, USERNAME, PASSWORD or DB_*/POSTGRES_*/PG* variants).
+    """
     value = (
         os.getenv("DATABASE_URL")
         or os.getenv("POSTGRES_DATABASE_URL")
         or os.getenv("POSTGRES_URL")
         or ""
-    )
-    if not value:
-        raise RuntimeError("PostgreSQL DATABASE_URL is required; no in-memory fallback is allowed.")
-    return value
+    ).strip()
+    if value:
+        return value
+
+    # Check discrete connection variables
+    host = (
+        os.getenv("HOST")
+        or os.getenv("DB_HOST")
+        or os.getenv("POSTGRES_HOST")
+        or os.getenv("PGHOST")
+        or ""
+    ).strip()
+
+    name = (
+        os.getenv("NAME")
+        or os.getenv("DB_NAME")
+        or os.getenv("POSTGRES_DB")
+        or os.getenv("PGDATABASE")
+        or os.getenv("POSTGRES_NAME")
+        or ""
+    ).strip()
+
+    username = (
+        os.getenv("USERNAME")
+        or os.getenv("DB_USER")
+        or os.getenv("POSTGRES_USER")
+        or os.getenv("PGUSER")
+        or os.getenv("DB_USERNAME")
+        or os.getenv("POSTGRES_USERNAME")
+        or ""
+    ).strip()
+
+    password = (
+        os.getenv("PASSWORD")
+        or os.getenv("DB_PASSWORD")
+        or os.getenv("POSTGRES_PASSWORD")
+        or os.getenv("PGPASSWORD")
+        or ""
+    ).strip()
+
+    port = (
+        os.getenv("PORT")
+        or os.getenv("DB_PORT")
+        or os.getenv("POSTGRES_PORT")
+        or os.getenv("PGPORT")
+        or "5432"
+    ).strip()
+
+    if host and name:
+        user_info = ""
+        if username:
+            quoted_user = urllib.parse.quote_plus(username)
+            if password:
+                quoted_pass = urllib.parse.quote_plus(password)
+                user_info = f"{quoted_user}:{quoted_pass}@"
+            else:
+                user_info = f"{quoted_user}@"
+        return f"postgresql://{user_info}{host}:{port}/{name}"
+
+    raise RuntimeError("PostgreSQL DATABASE_URL is required; no in-memory fallback is allowed.")
 
 
 class PostgresRepository(OrbitStore):
@@ -294,5 +357,25 @@ class PostgresRepository(OrbitStore):
 
     def complete_sprint(self, *args, **kwargs):
         out = super().complete_sprint(*args, **kwargs)
+        self.save_snapshot()
+        return out
+
+    def add_checklist_item(self, *args, **kwargs):
+        out = super().add_checklist_item(*args, **kwargs)
+        self.save_snapshot()
+        return out
+
+    def update_checklist_item(self, *args, **kwargs):
+        out = super().update_checklist_item(*args, **kwargs)
+        self.save_snapshot()
+        return out
+
+    def delete_checklist_item(self, *args, **kwargs):
+        out = super().delete_checklist_item(*args, **kwargs)
+        self.save_snapshot()
+        return out
+
+    def delete_issue(self, *args, **kwargs):
+        out = super().delete_issue(*args, **kwargs)
         self.save_snapshot()
         return out
