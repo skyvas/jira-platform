@@ -384,3 +384,170 @@ def test_main_entrypoint_export():
     assert hasattr(main, "app")
     assert main.app.title == "Orbit API"
 
+
+def test_issue_type_and_story_points():
+    """Verify issue_type and story_points can be set on creation and updated via PATCH."""
+    # Login as admin
+    client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+
+    # 1. Create issue with BUG type and 5.0 story points
+    res = client.post("/api/issues", json={
+        "title": "Fix Memory Leak in Engine",
+        "issue_type": "BUG",
+        "story_points": 5.0,
+        "priority": "HIGH",
+        "status": "TODO"
+    })
+    assert res.status_code == 200
+    created = res.json()
+    assert created["issue_type"] == "BUG"
+    assert created["story_points"] == 5.0
+
+    issue_id = created["id"]
+
+    # 2. Update issue to EPIC type and 13.0 story points
+    patch_res = client.patch(f"/api/issues/{issue_id}", json={
+        "issue_type": "EPIC",
+        "story_points": 13.0
+    })
+    assert patch_res.status_code == 200
+    updated = patch_res.json()
+    assert updated["issue_type"] == "EPIC"
+    assert updated["story_points"] == 13.0
+
+    # 3. Clear story points
+    clear_res = client.patch(f"/api/issues/{issue_id}", json={
+        "story_points": None
+    })
+    assert clear_res.status_code == 200
+    cleared = clear_res.json()
+    assert cleared["story_points"] is None
+
+
+def test_acceptance_checklist_crud_and_completion():
+    """Verify adding, completing, updating, and deleting acceptance checklist items."""
+    client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+
+    # 1. Create issue
+    res = client.post("/api/issues", json={
+        "title": "Deploy Authentication Service",
+        "issue_type": "STORY",
+        "story_points": 8.0,
+        "status": "IN_PROGRESS"
+    })
+    assert res.status_code == 200
+    issue_id = res.json()["id"]
+
+    # 2. Add checklist item
+    add_res = client.post(f"/api/issues/{issue_id}/checklist", json={
+        "text": "Write unit tests with 100% branch coverage"
+    })
+    assert add_res.status_code == 200
+    item = add_res.json()
+    assert item["text"] == "Write unit tests with 100% branch coverage"
+    assert item["completed"] is False
+    item_id = item["id"]
+
+    issue_data = client.get(f"/api/issues/{issue_id}").json()
+    assert len(issue_data["checklist"]) == 1
+
+    # 3. Add second checklist item
+    add_res2 = client.post(f"/api/issues/{issue_id}/checklist", json={
+        "text": "Pass security audit"
+    })
+    assert add_res2.status_code == 200
+    issue_data2 = client.get(f"/api/issues/{issue_id}").json()
+    assert len(issue_data2["checklist"]) == 2
+
+    # 4. Toggle completion
+    patch_item = client.patch(f"/api/issues/{issue_id}/checklist/{item_id}", json={
+        "completed": True
+    })
+    assert patch_item.status_code == 200
+    assert patch_item.json()["completed"] is True
+
+    # 5. Delete checklist item
+    del_res = client.delete(f"/api/issues/{issue_id}/checklist/{item_id}")
+    assert del_res.status_code == 200
+    issue_data3 = client.get(f"/api/issues/{issue_id}").json()
+    assert len(issue_data3["checklist"]) == 1
+    assert not any(i["id"] == item_id for i in issue_data3["checklist"])
+
+
+def test_sse_events_stream_and_broadcasting():
+    """Verify Server-Sent Events (SSE) stream endpoint and broadcaster mechanism."""
+    from backend.services.event_broadcaster import broadcaster
+
+    sub_q = broadcaster.subscribe()
+    try:
+        broadcaster.publish("CUSTOM_EVENT", {"hello": "world"})
+        msg = sub_q.get_nowait()
+        assert "event: CUSTOM_EVENT\n" in msg
+        assert '"hello": "world"' in msg
+    finally:
+        broadcaster.unsubscribe(sub_q)
+
+    # Test SSE stream endpoint connection
+    res = client.get("/api/events?once=true")
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers.get("content-type", "")
+    assert "event: connected" in res.text
+    assert '"status": "connected"' in res.text
+
+
+def test_workflow_guard_cannot_move_to_done_with_incomplete_checklist():
+    """Verify state machine workflow guard prevents moving issues to DONE with incomplete checklist."""
+    client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+
+    # Create issue with TODO status
+    res = client.post("/api/issues", json={
+        "title": "Guard Test Issue",
+        "status": "TODO"
+    })
+    assert res.status_code == 200
+    issue_id = res.json()["id"]
+
+    # Add incomplete checklist item
+    item_res = client.post(f"/api/issues/{issue_id}/checklist", json={
+        "text": "Critical security verification"
+    })
+    assert item_res.status_code == 200
+    item_id = item_res.json()["id"]
+
+    # Move to IN_PROGRESS
+    move1 = client.patch(f"/api/issues/{issue_id}/move", json={"new_status": "IN_PROGRESS"})
+    assert move1.status_code == 200
+
+    # Move to REVIEW
+    move2 = client.patch(f"/api/issues/{issue_id}/move", json={"new_status": "REVIEW"})
+    assert move2.status_code == 200
+
+    # Attempt to move to DONE with incomplete checklist -> MUST FAIL with 400
+    move_done_fail = client.patch(f"/api/issues/{issue_id}/move", json={"new_status": "DONE"})
+    assert move_done_fail.status_code == 400
+    assert "all acceptance checklist items must be completed" in move_done_fail.json()["detail"]
+
+    # Complete the checklist item
+    client.patch(f"/api/issues/{issue_id}/checklist/{item_id}", json={"completed": True})
+
+    # Now move to DONE -> MUST SUCCEED with 200
+    move_done_ok = client.patch(f"/api/issues/{issue_id}/move", json={"new_status": "DONE"})
+    assert move_done_ok.status_code == 200
+    assert move_done_ok.json()["status"] == "DONE"
+    assert move_done_ok.json()["resolved_at"] is not None
+
+
+def test_delete_issue_endpoint():
+    """Verify DELETE /api/issues/{issue_id} endpoint and permission control."""
+    client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    res = client.post("/api/issues", json={"title": "To be deleted issue"})
+    issue_id = res.json()["id"]
+
+    del_res = client.delete(f"/api/issues/{issue_id}")
+    assert del_res.status_code == 200
+    assert del_res.json() == {"status": "ok", "deleted": True}
+
+    get_res = client.get(f"/api/issues/{issue_id}")
+    assert get_res.status_code == 404
+
+

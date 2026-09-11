@@ -143,6 +143,10 @@ async function checkAuth() {
 }
 
 function clearClientData() {
+  if (window._orbitEventSource) {
+    window._orbitEventSource.close();
+    window._orbitEventSource = null;
+  }
   allIssues = [];
   allProjects = [];
   allSprints = [];
@@ -248,6 +252,52 @@ async function initWorkspace() {
   await loadUsers();
   await loadBoard();
   await loadNotifications();
+  initSSEBroadcaster();
+}
+
+function initSSEBroadcaster() {
+  if (!window.EventSource) return;
+  if (window._orbitEventSource) {
+    window._orbitEventSource.close();
+    window._orbitEventSource = null;
+  }
+
+  try {
+    const evtSource = new EventSource('/api/events');
+    window._orbitEventSource = evtSource;
+
+    const handleServerUpdate = async (event) => {
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
+
+      try {
+        const res = await fetch(`/api/board?project_id=${currentProjectId || ''}`);
+        if (res.ok) {
+          const data = await res.json();
+          allIssues = data.issues || [];
+          allSprints = data.sprints || [];
+          if (!isInputFocused) {
+            renderBoard();
+            updateSprintBanner();
+          }
+        }
+      } catch (e) {
+        console.warn('Background board sync error:', e);
+      }
+    };
+
+    evtSource.addEventListener('ISSUE_MOVED', handleServerUpdate);
+    evtSource.addEventListener('ISSUE_CREATED', handleServerUpdate);
+    evtSource.addEventListener('ISSUE_UPDATED', handleServerUpdate);
+    evtSource.addEventListener('ISSUE_DELETED', handleServerUpdate);
+    evtSource.addEventListener('CHECKLIST_UPDATED', handleServerUpdate);
+
+    evtSource.onerror = (e) => {
+      // EventSource auto-reconnects
+    };
+  } catch (err) {
+    console.warn('Failed to start EventSource:', err);
+  }
 }
 
 // ==================== PROJECTS ====================
@@ -623,8 +673,13 @@ function renderBoard() {
   const tagVal = document.getElementById('tag-filter').value;
   const statusVal = document.getElementById('status-filter').value;
   const assigneeVal = document.getElementById('assignee-filter').value;
-  const roleVal = document.getElementById('role-filter').value;
+  const roleFilterEl = document.getElementById('role-filter');
+  const roleVal = roleFilterEl ? roleFilterEl.value : 'ALL';
   const priorityVal = document.getElementById('priority-filter').value;
+  const typeFilterEl = document.getElementById('type-filter');
+  const typeVal = typeFilterEl ? typeFilterEl.value : 'ALL';
+  const myIssuesBtn = document.getElementById('btn-filter-my-issues');
+  const myIssuesActive = myIssuesBtn && myIssuesBtn.classList.contains('active');
 
   const isFiltered = (
     searchVal !== '' ||
@@ -633,6 +688,8 @@ function renderBoard() {
     assigneeVal !== 'ALL' ||
     roleVal !== 'ALL' ||
     priorityVal !== 'ALL' ||
+    typeVal !== 'ALL' ||
+    myIssuesActive ||
     currentSprintId !== 'ALL'
   );
 
@@ -646,6 +703,19 @@ function renderBoard() {
     // Sprint filter
     if (currentSprintId && currentSprintId !== 'ALL') {
       if (issue.sprint_id !== currentSprintId) return false;
+    }
+
+    // My Issues quick filter
+    if (myIssuesActive && currentUser) {
+      const cleanUser = currentUser.username.toLowerCase().trim();
+      const issueAssignee = (issue.assignee || '').toLowerCase().trim().replace(/^@/, '');
+      if (issueAssignee !== cleanUser) return false;
+    }
+
+    // Issue Type filter
+    if (typeVal !== 'ALL') {
+      const issueType = (issue.issue_type || 'TASK').toUpperCase();
+      if (issueType !== typeVal.toUpperCase()) return false;
     }
 
     // Search filter
@@ -698,13 +768,18 @@ function renderBoard() {
   currentBoardColumns.forEach(col => {
     const colStatusNorm = String(col.status).toUpperCase();
     const colIssues = filtered.filter(i => String(i.status).toUpperCase() === colStatusNorm);
+    const colPoints = colIssues.reduce((sum, i) => sum + (Number(i.story_points) || 0), 0);
+    const pointsBadgeHtml = colPoints > 0 ? `<span class="col-points-badge" title="Total Story Points in this column">${colPoints} pts</span>` : '';
 
     const colEl = document.createElement('div');
     colEl.className = 'kanban-column';
     colEl.innerHTML = `
       <div class="column-header">
-        <span class="column-title">${escapeHtml(col.name)}</span>
-        <span class="column-count">${colIssues.length}</span>
+        <div class="col-header-left">
+          <span class="column-title">${escapeHtml(col.name)}</span>
+          <span class="column-count">${colIssues.length}</span>
+        </div>
+        ${pointsBadgeHtml}
       </div>
       <div class="cards-container" data-status="${col.status}"></div>
     `;
@@ -726,6 +801,22 @@ function createCardElement(issue) {
   card.className = 'issue-card';
   card.draggable = true;
   card.dataset.id = issue.id;
+
+  const issueType = issue.issue_type || 'TASK';
+  const typeBadgeHtml = `<span class="type-badge type-${issueType}">${issueType}</span>`;
+
+  let pointsBadgeHtml = '';
+  if (issue.story_points !== null && issue.story_points !== undefined && issue.story_points !== '') {
+    pointsBadgeHtml = `<span class="card-points-badge">${issue.story_points} pts</span>`;
+  }
+
+  let checklistBadgeHtml = '';
+  if (issue.checklist && issue.checklist.length > 0) {
+    const doneCount = issue.checklist.filter(c => c.completed).length;
+    const totalCount = issue.checklist.length;
+    const allDone = doneCount === totalCount && totalCount > 0;
+    checklistBadgeHtml = `<span class="card-checklist-badge ${allDone ? 'all-done' : ''}" title="${doneCount} of ${totalCount} checklist items completed">☑ ${doneCount}/${totalCount}</span>`;
+  }
 
   // Tags HTML
   let tagsHtml = '';
@@ -776,8 +867,14 @@ function createCardElement(issue) {
 
   card.innerHTML = `
     <div class="card-top">
-      <span class="issue-key">${issue.key}</span>
-      <span class="priority-badge priority-${issue.priority}">${issue.priority}</span>
+      <div class="card-top-left">
+        ${typeBadgeHtml}
+        <span class="issue-key">${issue.key}</span>
+      </div>
+      <div class="card-top-right">
+        ${pointsBadgeHtml}
+        <span class="priority-badge priority-${issue.priority}">${issue.priority}</span>
+      </div>
     </div>
     <div class="card-title">${escapeHtml(issue.title)}</div>
     ${tagsHtml}
@@ -785,6 +882,7 @@ function createCardElement(issue) {
     <div class="card-bottom">
       ${assigneeHtml}
       <div class="card-meta-badges">
+        ${checklistBadgeHtml}
         ${attachCount > 0 ? `<span class="meta-icon-item">${getSvgIcon('paperclip', 'svg-icon-xs')} ${attachCount}</span>` : ''}
         <span class="meta-icon-item">${getSvgIcon('message', 'svg-icon-xs')} ${commentCount}</span>
       </div>
@@ -886,6 +984,24 @@ function renderIssueDetailModal() {
   priorityBadge.textContent = issue.priority;
   priorityBadge.className = `priority-badge priority-${issue.priority}`;
 
+  // Issue Type in Modal
+  const issueType = issue.issue_type || 'TASK';
+  const typeBadge = document.getElementById('detail-type-badge');
+  if (typeBadge) {
+    typeBadge.textContent = issueType;
+    typeBadge.className = `type-badge type-${issueType}`;
+  }
+  const typeSelect = document.getElementById('detail-type-select');
+  if (typeSelect) {
+    typeSelect.value = issueType;
+  }
+
+  // Story Points in Modal
+  const pointsInput = document.getElementById('detail-points-input');
+  if (pointsInput) {
+    pointsInput.value = (issue.story_points !== null && issue.story_points !== undefined) ? issue.story_points : '';
+  }
+
   document.getElementById('detail-status-badge').textContent = issue.status;
   document.getElementById('detail-title-input').value = issue.title;
   document.getElementById('detail-desc-input').value = issue.description || '';
@@ -901,9 +1017,125 @@ function renderIssueDetailModal() {
   // Update Prominent Assignee Spotlight in Ticket Detail
   updateAssigneeSpotlightUI(issue.assignee);
 
+  renderDetailChecklist();
   renderDetailTags();
   renderDetailAttachments();
   renderDetailComments();
+}
+
+function renderDetailChecklist() {
+  if (!activeIssueDetail) return;
+  const checklist = activeIssueDetail.checklist || [];
+  const total = checklist.length;
+  const done = checklist.filter(item => item.completed).length;
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  const counterEl = document.getElementById('detail-checklist-counter');
+  if (counterEl) {
+    counterEl.textContent = `${done} of ${total} completed (${pct}%)`;
+  }
+  const progressEl = document.getElementById('detail-checklist-progress');
+  if (progressEl) {
+    progressEl.style.width = `${pct}%`;
+  }
+
+  const itemsContainer = document.getElementById('detail-checklist-items');
+  if (!itemsContainer) return;
+  itemsContainer.innerHTML = '';
+
+  if (checklist.length === 0) {
+    itemsContainer.innerHTML = '<div class="checklist-empty-hint">No acceptance criteria or sub-tasks yet. Add one below.</div>';
+    return;
+  }
+
+  checklist.forEach(item => {
+    const row = document.createElement('div');
+    row.className = `checklist-item-row ${item.completed ? 'completed' : ''}`;
+    row.innerHTML = `
+      <label class="checklist-item-label">
+        <input type="checkbox" class="checklist-item-cb" ${item.completed ? 'checked' : ''} data-id="${item.id}">
+        <span class="checklist-item-text">${escapeHtml(item.text)}</span>
+      </label>
+      <button type="button" class="checklist-item-del-btn" title="Delete item" data-id="${item.id}">&times;</button>
+    `;
+
+    const cb = row.querySelector('.checklist-item-cb');
+    cb.addEventListener('change', async () => {
+      await toggleChecklistItem(item.id, cb.checked);
+    });
+
+    const delBtn = row.querySelector('.checklist-item-del-btn');
+    delBtn.addEventListener('click', async () => {
+      await deleteChecklistItem(item.id);
+    });
+
+    itemsContainer.appendChild(row);
+  });
+}
+
+async function toggleChecklistItem(itemId, completed) {
+  if (!activeIssueDetail) return;
+  try {
+    const res = await fetch(`/api/issues/${activeIssueDetail.id}/checklist/${itemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed })
+    });
+    if (res.ok) {
+      const updatedItem = await res.json();
+      activeIssueDetail.checklist = activeIssueDetail.checklist || [];
+      const item = activeIssueDetail.checklist.find(i => i.id === itemId);
+      if (item) {
+        item.completed = (updatedItem && typeof updatedItem.completed === 'boolean') ? updatedItem.completed : completed;
+      }
+      renderDetailChecklist();
+      syncIssueInList(activeIssueDetail);
+    }
+  } catch (err) {
+    console.error('Failed to toggle checklist item:', err);
+  }
+}
+
+async function addChecklistItem() {
+  if (!activeIssueDetail) return;
+  const input = document.getElementById('input-new-checklist-item');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  try {
+    const res = await fetch(`/api/issues/${activeIssueDetail.id}/checklist`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (res.ok) {
+      const newItem = await res.json();
+      activeIssueDetail.checklist = activeIssueDetail.checklist || [];
+      activeIssueDetail.checklist.push(newItem);
+      input.value = '';
+      renderDetailChecklist();
+      syncIssueInList(activeIssueDetail);
+    }
+  } catch (err) {
+    console.error('Failed to add checklist item:', err);
+  }
+}
+
+async function deleteChecklistItem(itemId) {
+  if (!activeIssueDetail) return;
+  try {
+    const res = await fetch(`/api/issues/${activeIssueDetail.id}/checklist/${itemId}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      activeIssueDetail.checklist = (activeIssueDetail.checklist || []).filter(i => i.id !== itemId);
+      renderDetailChecklist();
+      syncIssueInList(activeIssueDetail);
+    }
+  } catch (err) {
+    console.error('Failed to delete checklist item:', err);
+  }
 }
 
 function updateAssigneeSpotlightUI(assigneeUsername) {
@@ -1005,7 +1237,7 @@ function renderDetailComments() {
   comments.forEach(c => {
     const bubble = document.createElement('div');
     bubble.className = 'comment-bubble';
-    const formattedContent = highlightMentions(escapeHtml(c.content));
+    const formattedContent = formatCommentContent(c.content);
     const timeAgo = formatTimeAgo(c.created_at);
 
     let imagesHtml = '';
@@ -1045,8 +1277,45 @@ function renderDetailComments() {
   stream.scrollTop = stream.scrollHeight;
 }
 
+function renderMarkdown(text) {
+  if (!text) return '';
+  let escaped = escapeHtml(text);
+
+  // Fenced code blocks
+  escaped = escaped.replace(/```([\s\S]*?)```/g, (match, p1) => {
+    return `<pre class="markdown-code-block"><code>${p1.trim()}</code></pre>`;
+  });
+
+  // Inline code
+  escaped = escaped.replace(/`([^`]+)`/g, '<code class="markdown-inline-code">$1</code>');
+
+  // Bold
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Italic
+  escaped = escaped.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+
+  // Lists
+  escaped = escaped.replace(/(?:^|\n)[-*]\s+([^\n]+)/g, '<li class="markdown-li">$1</li>');
+  escaped = escaped.replace(/(<li[\s\S]+?<\/li>)/g, '<ul class="markdown-ul">$1</ul>');
+  escaped = escaped.replace(/<\/ul>\s*<ul class="markdown-ul">/g, '');
+
+  const parts = escaped.split(/(<pre[\s\S]*?<\/pre>)/);
+  for (let i = 0; i < parts.length; i++) {
+    if (!parts[i].startsWith('<pre')) {
+      parts[i] = parts[i].replace(/\n/g, '<br>');
+    }
+  }
+  return parts.join('');
+}
+
 function highlightMentions(text) {
   return text.replace(/@([a-zA-Z0-9_-]+)/g, '<span class="mention-pill">@$1</span>');
+}
+
+function formatCommentContent(text) {
+  const md = renderMarkdown(text);
+  return highlightMentions(md);
 }
 
 function insertMention(username) {
@@ -1800,6 +2069,17 @@ function setupEventListeners() {
   document.getElementById('role-filter').addEventListener('change', renderBoard);
   document.getElementById('priority-filter').addEventListener('change', renderBoard);
 
+  const typeFilter = document.getElementById('type-filter');
+  if (typeFilter) typeFilter.addEventListener('change', renderBoard);
+
+  const myIssuesBtn = document.getElementById('btn-filter-my-issues');
+  if (myIssuesBtn) {
+    myIssuesBtn.addEventListener('click', () => {
+      myIssuesBtn.classList.toggle('active');
+      renderBoard();
+    });
+  }
+
   document.getElementById('btn-reset-filters').addEventListener('click', () => {
     document.getElementById('search-input').value = '';
     document.getElementById('tag-filter').value = 'ALL';
@@ -1807,10 +2087,92 @@ function setupEventListeners() {
     document.getElementById('assignee-filter').value = 'ALL';
     document.getElementById('role-filter').value = 'ALL';
     document.getElementById('priority-filter').value = 'ALL';
+    if (typeFilter) typeFilter.value = 'ALL';
+    if (myIssuesBtn) myIssuesBtn.classList.remove('active');
     currentSprintId = 'ALL';
     document.getElementById('sprint-select').value = 'ALL';
     updateSprintBanner();
     renderBoard();
+  });
+
+  // Acceptance Checklist Listeners
+  const btnAddChecklist = document.getElementById('btn-add-checklist-item');
+  if (btnAddChecklist) {
+    btnAddChecklist.addEventListener('click', addChecklistItem);
+  }
+  const inputNewChecklist = document.getElementById('input-new-checklist-item');
+  if (inputNewChecklist) {
+    inputNewChecklist.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addChecklistItem();
+      }
+    });
+  }
+
+  // Shortcuts modal & keyboard handling
+  const shortcutsModal = document.getElementById('shortcuts-modal');
+  const shortcutsTrigger = document.getElementById('shortcuts-hint-trigger');
+  const shortcutsClose = document.getElementById('shortcuts-modal-close');
+  const btnCloseShortcuts = document.getElementById('btn-close-shortcuts');
+
+  function openShortcutsModal() {
+    if (shortcutsModal) shortcutsModal.style.display = 'flex';
+  }
+  function closeShortcutsModal() {
+    if (shortcutsModal) shortcutsModal.style.display = 'none';
+  }
+
+  if (shortcutsTrigger) shortcutsTrigger.addEventListener('click', openShortcutsModal);
+  if (shortcutsClose) shortcutsClose.addEventListener('click', closeShortcutsModal);
+  if (btnCloseShortcuts) btnCloseShortcuts.addEventListener('click', closeShortcutsModal);
+
+  window.addEventListener('keydown', (e) => {
+    const activeEl = document.activeElement;
+    const isEditing = activeEl && (
+      activeEl.tagName === 'INPUT' ||
+      activeEl.tagName === 'TEXTAREA' ||
+      activeEl.tagName === 'SELECT' ||
+      activeEl.isContentEditable
+    );
+
+    if (e.key === 'Escape') {
+      const detailModal = document.getElementById('issue-detail-modal');
+      const createModal = document.getElementById('create-modal');
+      const lightbox = document.getElementById('lightbox-modal');
+      if (lightbox && lightbox.style.display !== 'none') {
+        closeLightbox();
+        return;
+      }
+      if (shortcutsModal && shortcutsModal.style.display !== 'none') {
+        closeShortcutsModal();
+        return;
+      }
+      if (detailModal && detailModal.style.display !== 'none') {
+        detailModal.style.display = 'none';
+        return;
+      }
+      if (createModal && createModal.style.display !== 'none') {
+        createModal.style.display = 'none';
+        return;
+      }
+      return;
+    }
+
+    if (isEditing) return;
+
+    if (e.key === 'c' || e.key === 'C') {
+      e.preventDefault();
+      const btn = document.getElementById('btn-create-issue');
+      if (btn) btn.click();
+    } else if (e.key === '/') {
+      e.preventDefault();
+      const searchInput = document.getElementById('search-input');
+      if (searchInput) searchInput.focus();
+    } else if (e.key === '?') {
+      e.preventDefault();
+      openShortcutsModal();
+    }
   });
 
   // Create Issue Modal
@@ -1889,6 +2251,9 @@ function setupEventListeners() {
     const assignee = document.getElementById('issue-assignee').value || null;
     const rawTags = document.getElementById('issue-tags').value;
     const tags = rawTags.split(',').map(t => t.trim()).filter(Boolean);
+    const issueType = document.getElementById('issue-type') ? document.getElementById('issue-type').value : 'TASK';
+    const pointsRaw = document.getElementById('issue-points') ? document.getElementById('issue-points').value.trim() : '';
+    const storyPoints = pointsRaw !== '' ? parseFloat(pointsRaw) : null;
 
     try {
       const res = await fetch('/api/issues', {
@@ -1902,7 +2267,9 @@ function setupEventListeners() {
           priority,
           status,
           assignee,
-          tags
+          tags,
+          issue_type: issueType,
+          story_points: storyPoints
         })
       });
 
@@ -1986,17 +2353,25 @@ function setupEventListeners() {
     const priority = document.getElementById('detail-priority-select').value;
     const assignee = document.getElementById('detail-assignee-select').value || null;
     const tags = activeIssueDetail.tags || [];
+    const issueType = document.getElementById('detail-type-select') ? document.getElementById('detail-type-select').value : undefined;
+    const pointsRaw = document.getElementById('detail-points-input') ? document.getElementById('detail-points-input').value.trim() : '';
+    const storyPoints = pointsRaw !== '' ? parseFloat(pointsRaw) : null;
 
     try {
+      const payload = { title, description, priority, assignee, tags };
+      if (issueType) payload.issue_type = issueType;
+      payload.story_points = storyPoints;
+
       const res = await fetch(`/api/issues/${activeIssueDetail.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, description, priority, assignee, tags })
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
         activeIssueDetail = await res.json();
         syncIssueInList(activeIssueDetail);
+        renderIssueDetailModal();
         const statusMsg = document.getElementById('detail-save-msg');
         statusMsg.textContent = '✓ Saved successfully!';
         setTimeout(() => { statusMsg.textContent = ''; }, 2500);

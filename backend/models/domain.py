@@ -158,6 +158,17 @@ class Notification(BaseModel):
     read: bool = False
 
 
+class ChecklistItem(BaseModel):
+    id: str
+    text: str
+    completed: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @property
+    def is_completed(self) -> bool:
+        return self.completed
+
+
 class Issue(BaseModel):
     id: str
     key: str
@@ -167,12 +178,14 @@ class Issue(BaseModel):
     status: str = "TODO"
     priority: Priority = Priority.MEDIUM
     issue_type: IssueType = IssueType.TASK
+    story_points: Optional[float] = None
     rank: str = "0|hzzzzz:"
     assignee: Optional[str] = None
     sprint_id: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     attachments: List[Attachment] = Field(default_factory=list)
     comments: List[Comment] = Field(default_factory=list)
+    checklist: List[ChecklistItem] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     resolved_at: Optional[datetime] = None

@@ -367,3 +367,152 @@ def test_wasmer_api_404_returns_json_not_html(wasmer_server):
     data = json.loads(err_resp.read().decode())
     assert "detail" in data
 
+
+def test_wasmer_issue_types_and_story_points(wasmer_server):
+    # 1. Create issue with BUG type and 3.0 story points
+    create_payload = json.dumps({
+        "project_id": "proj-proj",
+        "title": "Wasmer Edge Bug Report",
+        "issue_type": "BUG",
+        "story_points": 3.0,
+        "status": "TODO"
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{wasmer_server}/api/issues",
+        data=create_payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 201
+        created = json.loads(resp.read().decode())
+        assert created["issue_type"] == "BUG"
+        assert created["story_points"] == 3.0
+        issue_id = created["id"]
+
+    # 2. Patch to EPIC and 8.0 points
+    patch_payload = json.dumps({
+        "issue_type": "EPIC",
+        "story_points": 8.0
+    }).encode("utf-8")
+    patch_req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/{issue_id}",
+        data=patch_payload,
+        headers={"Content-Type": "application/json"},
+        method="PATCH"
+    )
+    with urllib.request.urlopen(patch_req) as resp:
+        assert resp.status == 200
+        updated = json.loads(resp.read().decode())
+        assert updated["issue_type"] == "EPIC"
+        assert updated["story_points"] == 8.0
+
+
+def test_wasmer_checklist_crud_endpoints(wasmer_server):
+    # 1. Add checklist item
+    add_payload = json.dumps({"text": "Run automated edge integration tests"}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/iss-1/checklist",
+        data=add_payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        item = json.loads(resp.read().decode())
+        assert item["text"] == "Run automated edge integration tests"
+        assert item["completed"] is False
+        item_id = item["id"]
+
+    # 2. Toggle item completion
+    patch_payload = json.dumps({"completed": True}).encode("utf-8")
+    patch_req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/iss-1/checklist/{item_id}",
+        data=patch_payload,
+        headers={"Content-Type": "application/json"},
+        method="PATCH"
+    )
+    with urllib.request.urlopen(patch_req) as resp:
+        assert resp.status == 200
+        patch_data = json.loads(resp.read().decode())
+        assert patch_data["completed"] is True
+
+    # 3. Delete item
+    del_req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/iss-1/checklist/{item_id}",
+        method="DELETE"
+    )
+    with urllib.request.urlopen(del_req) as resp:
+        assert resp.status == 200
+        del_data = json.loads(resp.read().decode())
+        assert del_data["status"] == "ok"
+
+    # 4. Verify issue no longer has item
+    get_req = urllib.request.Request(f"{wasmer_server}/api/issues/iss-1")
+    with urllib.request.urlopen(get_req) as resp:
+        assert resp.status == 200
+        issue = json.loads(resp.read().decode())
+        assert not any(i["id"] == item_id for i in issue.get("checklist", []))
+
+
+def test_wasmer_sse_events_endpoint(wasmer_server):
+    req = urllib.request.Request(f"{wasmer_server}/api/events")
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        assert resp.headers.get("Content-Type").startswith("text/event-stream")
+        content = resp.read().decode()
+        assert "event: connected" in content
+        assert '"status": "connected"' in content
+
+
+def test_wasmer_workflow_guard_cannot_move_to_done_with_incomplete_checklist(wasmer_server):
+    # 1. Add incomplete checklist item to iss-1
+    add_payload = json.dumps({"text": "Critical edge acceptance item"}).encode("utf-8")
+    add_req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/iss-1/checklist",
+        data=add_payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(add_req) as resp:
+        item = json.loads(resp.read().decode())
+        item_id = item["id"]
+
+    # 2. Attempt to move to DONE with incomplete checklist -> Expect 400
+    move_payload = json.dumps({"new_status": "DONE"}).encode("utf-8")
+    move_req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/iss-1/move",
+        data=move_payload,
+        headers={"Content-Type": "application/json"},
+        method="PATCH"
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(move_req)
+    assert exc_info.value.status == 400
+    err_body = json.loads(exc_info.value.read().decode())
+    assert "all acceptance checklist items must be completed" in err_body["detail"]
+
+    # 3. Complete the item
+    patch_payload = json.dumps({"completed": True}).encode("utf-8")
+    patch_req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/iss-1/checklist/{item_id}",
+        data=patch_payload,
+        headers={"Content-Type": "application/json"},
+        method="PATCH"
+    )
+    with urllib.request.urlopen(patch_req) as resp:
+        assert resp.status == 200
+
+    # 4. Now move to DONE -> Expect 200
+    move_done_req = urllib.request.Request(
+        f"{wasmer_server}/api/issues/iss-1/move",
+        data=move_payload,
+        headers={"Content-Type": "application/json"},
+        method="PATCH"
+    )
+    with urllib.request.urlopen(move_done_req) as resp:
+        assert resp.status == 200
+        moved = json.loads(resp.read().decode())
+        assert moved["status"] == "DONE"
+
+

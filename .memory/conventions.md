@@ -16,3 +16,13 @@
 - File upload endpoints in all runtime layers must parse multipart/form-data and base64 payloads into isolated file storage (`uploads/`), returning clean static asset URLs and preserving exact binary integrity.
 - Image attachments in comment streams must render as compact thumbnail cards with `object-fit: contain` and visual type badges, triggering non-destructive Lightbox modals with Download actions that preserve the active ticket context upon dismissal.
 - End-to-end browser integration tests must be implemented using Playwright (`playwright.sync_api` with `chromium`), ensuring isolated fixture lifecycles, explicit selector verification, and binary file download validation.
+- Specialized domain skills for system architecture, tech evaluation, migration, observability, UI frontend engineering, web accessibility (WCAG 2.2), UX research, and product discovery are cataloged in `.agents/skills/` with verified schemas and executable Python toolchains.
+- Agile sprint sizing and WIP management must use Fibonacci story points (`1, 2, 3, 5, 8, 13, 21`) with column header aggregations and null-safe clearance.
+- Interactive acceptance checklists must calculate completion percentages and ratios dynamically, providing instant visual feedback on cards (`☑ done/total`) and modal progress bars.
+- Power-user keyboard shortcuts (`c` create, `/` search, `Esc` dismiss, `?` help guide) must guard against triggering when user focus is inside editable form controls (`INPUT`, `TEXTAREA`, `SELECT`).
+- PostgreSQL configuration must support discrete GitHub repository/environment variables (`HOST`, `PORT`, `NAME`, `USERNAME`, `PASSWORD`) with URL parameter encoding alongside standard `DATABASE_URL` strings.
+- Snapshot persistence in `PostgresRepository` must roundtrip `story_points`, `issue_type`, and `checklist` models into `app_state` JSONB on every entity mutation.
+- Real-time updates must strictly utilize Server-Sent Events (`/api/events`) with unidirectional push, keep-alive comments (`: ping\n\n`), and a non-blocking `?once=true` query probe parameter for deterministic ASGI test harnesses.
+- Card transitions to `DONE` must be blocked by `StateMachine` with HTTP 400 when an issue contains incomplete acceptance checklist items.
+- Passwords must be hashed using PBKDF2-HMAC-SHA256 with at least 100,000 iterations and verified using constant-time `hmac.compare_digest`.
+- CORS configurations must dynamically validate origins from `CORS_ALLOWED_ORIGINS`, ensuring `allow_credentials` is disabled when wildcard origins (`*`) are present to comply with browser security specifications.

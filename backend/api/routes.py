@@ -1,34 +1,36 @@
 """FastAPI routes for Orbit."""
 from __future__ import annotations
+import asyncio
 import base64
+import json
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 import uuid
 
 from fastapi import APIRouter, Cookie, File, Header, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.models.domain import (
-    Attachment, Board, BoardColumnsUpdateRequest, ColumnConfig, Comment,
-    Issue, IssueStatus, Notification, Priority, Project, ProjectCreateRequest,
+    Attachment, Board, BoardColumnsUpdateRequest, ChecklistItem, ColumnConfig, Comment,
+    Issue, IssueStatus, IssueType, Notification, Priority, Project, ProjectCreateRequest,
     Role, Sprint, SprintState, UpdateUserNameRequest, UpdateUserPasswordRequest,
     User, UserCreate, UserLogin
 )
-import os
+from backend.services.event_broadcaster import broadcaster
 from backend.services.jira_store import OrbitStore, JiraStore
-from backend.services.postgres_repository import PostgresRepository
+from backend.services.postgres_repository import PostgresRepository, get_database_url
 from backend.services.state_machine import InvalidTransitionError
 
 router = APIRouter(prefix="/api")
 
 def _init_store():
-    db_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DATABASE_URL") or os.getenv("POSTGRES_URL")
-    if db_url:
-        try:
-            return PostgresRepository(db_url)
-        except Exception:
-            return OrbitStore()
-    return OrbitStore()
+    try:
+        db_url = get_database_url()
+        return PostgresRepository(db_url)
+    except Exception:
+        return OrbitStore()
 
 store = _init_store()
 
@@ -44,18 +46,32 @@ class CreateIssueRequest(BaseModel):
     description: str = ""
     status: Union[IssueStatus, str] = IssueStatus.TODO
     priority: Priority = Priority.MEDIUM
+    issue_type: Optional[Union[IssueType, str]] = IssueType.TASK
+    story_points: Optional[float] = None
     assignee: Optional[str] = None
     tags: Optional[List[str]] = None
     sprint_id: Optional[str] = None
+    checklist: Optional[List[dict]] = None
 
 
 class UpdateIssueRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[Priority] = None
+    issue_type: Optional[Union[IssueType, str]] = None
+    story_points: Optional[float] = None
     assignee: Optional[str] = None
     tags: Optional[List[str]] = None
     sprint_id: Optional[str] = None
+
+
+class CreateChecklistItemRequest(BaseModel):
+    text: str
+
+
+class UpdateChecklistItemRequest(BaseModel):
+    text: Optional[str] = None
+    completed: Optional[bool] = None
 
 
 class MoveIssueRequest(BaseModel):
@@ -325,19 +341,59 @@ def get_issues(project_id: Optional[str] = None):
     return store.get_issues(project_id)
 
 
+# ------------------ Real-Time Server-Sent Events (SSE) ------------------
+
+@router.get("/events")
+async def sse_events(request: Request, once: bool = False):
+    """Server-Sent Events endpoint for unidirectional real-time board and card updates."""
+    sub_queue = broadcaster.subscribe()
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        yield f"event: connected\ndata: {json.dumps({'status': 'connected'})}\n\n"
+        if once:
+            broadcaster.unsubscribe(sub_queue)
+            return
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(sub_queue.get(), timeout=15.0)
+                    yield msg
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            broadcaster.unsubscribe(sub_queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/issues", response_model=Issue)
 def create_issue(req: CreateIssueRequest, request: Request):
     proj_id = req.project_id or next(iter(store.projects.keys()))
-    return store.create_issue(
+    issue = store.create_issue(
         project_id=proj_id,
         title=req.title,
         description=req.description,
         status=req.status,
         priority=req.priority,
+        issue_type=req.issue_type or IssueType.TASK,
+        story_points=req.story_points,
         assignee=req.assignee,
         tags=req.tags,
-        sprint_id=req.sprint_id
+        sprint_id=req.sprint_id,
+        checklist=req.checklist
     )
+    broadcaster.publish("ISSUE_CREATED", issue.model_dump(mode="json"))
+    return issue
 
 
 @router.get("/issues/{issue_id}", response_model=Issue)
@@ -346,6 +402,18 @@ def get_issue(issue_id: str):
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
     return issue
+
+
+@router.delete("/issues/{issue_id}")
+def delete_issue(issue_id: str, request: Request):
+    current_user = get_current_user_from_req(request)
+    if current_user and current_user.role not in (Role.ADMIN, Role.MEMBER):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    success = store.delete_issue(issue_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    broadcaster.publish("ISSUE_DELETED", {"issue_id": issue_id})
+    return {"status": "ok", "deleted": True}
 
 
 @router.patch("/issues/{issue_id}", response_model=Issue)
@@ -361,6 +429,10 @@ def update_issue(issue_id: str, req: UpdateIssueRequest, request: Request):
         kwargs["description"] = req.description
     if "priority" in fields_set:
         kwargs["priority"] = req.priority
+    if "issue_type" in fields_set:
+        kwargs["issue_type"] = req.issue_type
+    if "story_points" in fields_set:
+        kwargs["story_points"] = req.story_points
     if "assignee" in fields_set:
         kwargs["assignee"] = req.assignee
     if "tags" in fields_set:
@@ -369,7 +441,52 @@ def update_issue(issue_id: str, req: UpdateIssueRequest, request: Request):
         kwargs["sprint_id"] = req.sprint_id
 
     try:
-        return store.update_issue(issue_id=issue_id, **kwargs)
+        updated = store.update_issue(issue_id=issue_id, **kwargs)
+        broadcaster.publish("ISSUE_UPDATED", updated.model_dump(mode="json"))
+        return updated
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+
+# ------------------ Checklist Endpoints ------------------
+
+@router.post("/issues/{issue_id}/checklist", response_model=ChecklistItem)
+def add_checklist_item(issue_id: str, req: CreateChecklistItemRequest):
+    if not req.text or not req.text.strip():
+        raise HTTPException(status_code=400, detail="Checklist item text is required")
+    try:
+        item = store.add_checklist_item(issue_id, req.text.strip())
+        broadcaster.publish("CHECKLIST_UPDATED", {"issue_id": issue_id, "item": item.model_dump(mode="json")})
+        return item
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+
+@router.patch("/issues/{issue_id}/checklist/{item_id}", response_model=ChecklistItem)
+def update_checklist_item(issue_id: str, item_id: str, req: UpdateChecklistItemRequest):
+    fields_set = req.model_fields_set
+    kwargs: Dict[str, Any] = {}
+    if "text" in fields_set:
+        kwargs["text"] = req.text
+    if "completed" in fields_set:
+        kwargs["completed"] = req.completed
+
+    try:
+        item = store.update_checklist_item(issue_id, item_id, **kwargs)
+        broadcaster.publish("CHECKLIST_UPDATED", {"issue_id": issue_id, "item": item.model_dump(mode="json")})
+        return item
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/issues/{issue_id}/checklist/{item_id}")
+def delete_checklist_item(issue_id: str, item_id: str):
+    try:
+        success = store.delete_checklist_item(issue_id, item_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Checklist item not found")
+        broadcaster.publish("CHECKLIST_UPDATED", {"issue_id": issue_id, "item_id": item_id})
+        return {"status": "ok", "deleted": True}
     except KeyError:
         raise HTTPException(status_code=404, detail="Issue not found")
 
@@ -381,13 +498,15 @@ def move_issue(issue_id: str, req: MoveIssueRequest, request: Request):
     current_user = get_current_user_from_req(request)
     mover = current_user.username if current_user else None
     try:
-        return store.move_issue(
+        moved = store.move_issue(
             issue_id=issue_id,
             new_status=req.new_status,
             prev_rank=req.prev_rank,
             next_rank=req.next_rank,
             mover_username=mover
         )
+        broadcaster.publish("ISSUE_MOVED", moved.model_dump(mode="json"))
+        return moved
     except KeyError:
         raise HTTPException(status_code=404, detail="Issue not found")
     except InvalidTransitionError as e:
@@ -478,7 +597,7 @@ def add_comment(issue_id: str, req: CreateCommentRequest, request: Request):
     author_role = current_user.role if current_user else (req.author_role or Role.ADMIN)
 
     try:
-        return store.add_comment(
+        comment = store.add_comment(
             issue_id=issue_id,
             author_username=author_username,
             author_name=author_name,
@@ -486,6 +605,8 @@ def add_comment(issue_id: str, req: CreateCommentRequest, request: Request):
             content=req.content,
             images=req.images
         )
+        broadcaster.publish("COMMENT_ADDED", {"issue_id": issue_id, "comment": comment.model_dump(mode="json")})
+        return comment
     except KeyError:
         raise HTTPException(status_code=404, detail="Issue not found")
 

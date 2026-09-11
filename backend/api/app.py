@@ -15,10 +15,29 @@ try:
 except Exception:
     app.state.database_url = None
 
+import os
+
+cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+if cors_origins_env:
+    allowed_origins = [orig.strip() for orig in cors_origins_env.split(",") if orig.strip()]
+    allow_credentials = "*" not in allowed_origins
+else:
+    allowed_origins = [
+        "http://localhost",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://localhost:5173",
+        "http://127.0.0.1",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:3000",
+        "http://testserver",
+    ]
+    allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

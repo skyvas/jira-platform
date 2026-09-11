@@ -2,6 +2,7 @@ import base64
 from datetime import datetime
 import email
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -27,13 +28,16 @@ __all__ = ["app"] if app is not None else []
 def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
     if not salt:
         salt = uuid.uuid4().hex[:16]
-    pwd_hash = hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+    pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000).hex()
     return pwd_hash, salt
 
 
 def verify_password(password: str, pwd_hash: str, salt: str) -> bool:
     expected, _ = hash_password(password, salt)
-    return expected == pwd_hash
+    if hmac.compare_digest(expected, pwd_hash):
+        return True
+    legacy_hash = hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy_hash, pwd_hash)
 
 
 # 2. Standalone in-memory state for Wasmer Edge WebAssembly execution
@@ -153,6 +157,8 @@ class WasmerState:
                 "description": "Implement state machine guards and memory persistence contracts.",
                 "status": "DONE",
                 "priority": "HIGH",
+                "issue_type": "TASK",
+                "story_points": 2.0,
                 "rank": "0|hzzzzz:",
                 "project_id": "proj-proj",
                 "assignee": "admin",
@@ -170,6 +176,10 @@ class WasmerState:
                         "created_at": "2026-09-10T00:00:00Z",
                         "images": []
                     }
+                ],
+                "checklist": [
+                    {"id": "chk-1", "text": "Draft architecture invariants", "completed": True},
+                    {"id": "chk-2", "text": "Configure verification gates", "completed": True}
                 ]
             },
             {
@@ -179,6 +189,8 @@ class WasmerState:
                 "description": "Enable collision-free card reordering with midpoint string generation.",
                 "status": "IN_PROGRESS",
                 "priority": "CRITICAL",
+                "issue_type": "BUG",
+                "story_points": 5.0,
                 "rank": "0|i00007:",
                 "project_id": "proj-proj",
                 "assignee": "alex",
@@ -195,6 +207,10 @@ class WasmerState:
                         "created_at": "2026-09-10T01:00:00Z",
                         "images": []
                     }
+                ],
+                "checklist": [
+                    {"id": "chk-3", "text": "Base-36 midpoint generator", "completed": True},
+                    {"id": "chk-4", "text": "Collision re-ranking tests", "completed": False}
                 ]
             },
             {
@@ -204,13 +220,19 @@ class WasmerState:
                 "description": "Elevate user experience with modern CSS design tokens and micro-animations.",
                 "status": "TODO",
                 "priority": "MEDIUM",
+                "issue_type": "STORY",
+                "story_points": 8.0,
                 "rank": "0|i0000e:",
                 "project_id": "proj-proj",
                 "assignee": "sam",
                 "tags": ["frontend", "ui"],
                 "sprint_id": "sprint-1",
                 "attachments": [],
-                "comments": []
+                "comments": [],
+                "checklist": [
+                    {"id": "chk-5", "text": "Extract CSS tokens", "completed": False},
+                    {"id": "chk-6", "text": "WCAG AA contrast audit", "completed": False}
+                ]
             },
             {
                 "id": "iss-4",
@@ -219,13 +241,18 @@ class WasmerState:
                 "description": "Ensure zero-dependency fallback for WebAssembly runtime.",
                 "status": "IN_PROGRESS",
                 "priority": "HIGH",
+                "issue_type": "EPIC",
+                "story_points": 13.0,
                 "rank": "0|i0000l:",
                 "project_id": "proj-proj",
                 "assignee": "admin",
                 "tags": ["cloud", "wasmer"],
                 "sprint_id": "sprint-1",
                 "attachments": [],
-                "comments": []
+                "comments": [],
+                "checklist": [
+                    {"id": "chk-7", "text": "Zero-dependency HTTP handler", "completed": True}
+                ]
             }
         ]
         self.issue_counter = 4
@@ -507,6 +534,21 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             self._send_json({"status": "ok", "app": "orbit", "runtime": "wasmer-edge"})
             return
 
+        # Real-time SSE Events
+        if raw_path == "/api/events":
+            conn_payload = f"event: connected\ndata: {json.dumps({'status': 'connected'})}\n\n".encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Content-Length", str(len(conn_payload)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.end_headers()
+            self.wfile.write(conn_payload)
+            return
+
         # Auth & Current User
         if raw_path == "/api/auth/me":
             user = self._get_current_user()
@@ -710,6 +752,30 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             issue_key = f"{proj['key']}-{STATE.issue_counter}"
             issue_id = f"iss-{STATE.issue_counter}"
             assignee = body.get("assignee")
+            sp_raw = body.get("story_points")
+            sp_val = None
+            if sp_raw is not None and str(sp_raw).strip() != "":
+                try:
+                    sp_val = float(sp_raw)
+                except (ValueError, TypeError):
+                    sp_val = None
+
+            checklist_raw = body.get("checklist", [])
+            checklist_items = []
+            for item in checklist_raw:
+                if isinstance(item, dict):
+                    checklist_items.append({
+                        "id": item.get("id") or f"chk-{uuid.uuid4().hex[:8]}",
+                        "text": str(item.get("text", "")).strip(),
+                        "completed": bool(item.get("completed", False))
+                    })
+                elif isinstance(item, str) and item.strip():
+                    checklist_items.append({
+                        "id": f"chk-{uuid.uuid4().hex[:8]}",
+                        "text": item.strip(),
+                        "completed": False
+                    })
+
             new_issue = {
                 "id": issue_id,
                 "key": issue_key,
@@ -719,11 +785,14 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                 "description": body.get("description", ""),
                 "status": body.get("status", "TODO"),
                 "priority": body.get("priority", "MEDIUM"),
+                "issue_type": body.get("issue_type", "TASK"),
+                "story_points": sp_val,
                 "rank": f"0|i{STATE.issue_counter:05d}:",
                 "assignee": assignee,
                 "tags": body.get("tags", []),
                 "attachments": [],
-                "comments": []
+                "comments": [],
+                "checklist": checklist_items
             }
             STATE.issues.append(new_issue)
 
@@ -741,6 +810,28 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             self._send_json(new_issue, 201)
             return
 
+        m_chk_add = re.match(r"^/api/issues/([^/]+)/checklist$", raw_path)
+        if m_chk_add:
+            issue_id = m_chk_add.group(1)
+            issue = STATE.find_issue(issue_id)
+            if not issue:
+                self._send_json({"detail": "Issue not found"}, 404)
+                return
+            body = self._read_json()
+            text = str(body.get("text", "")).strip()
+            if not text:
+                self._send_json({"detail": "Checklist item text is required"}, 400)
+                return
+            item = {
+                "id": f"chk-{uuid.uuid4().hex[:8]}",
+                "text": text,
+                "completed": False,
+                "created_at": datetime.utcnow().isoformat() + "Z"
+            }
+            issue.setdefault("checklist", []).append(item)
+            self._send_json(item, 200)
+            return
+
         m_move = re.match(r"^/api/issues/([^/]+)/move$", raw_path)
         if m_move:
             issue_id = m_move.group(1)
@@ -755,6 +846,21 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             old_status = issue.get("status")
             new_status = body.get("new_status")
             if new_status and new_status != old_status:
+                if new_status == "DONE":
+                    checklist = issue.get("checklist") or []
+                    incomplete = [
+                        item for item in checklist
+                        if not (item.get("completed", False) or item.get("is_completed", False))
+                    ]
+                    if incomplete:
+                        self._send_json(
+                            {
+                                "detail": f"Cannot resolve issue {issue.get('key')}: all acceptance checklist items must be completed before moving to DONE ({len(incomplete)} incomplete)."
+                            },
+                            400,
+                        )
+                        return
+
                 issue["status"] = new_status
                 if new_status == "DONE":
                     issue["resolved_at"] = datetime.utcnow().isoformat() + "Z"
@@ -1039,6 +1145,21 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             old_status = issue.get("status")
             new_status = body.get("new_status")
             if new_status and new_status != old_status:
+                if new_status == "DONE":
+                    checklist = issue.get("checklist") or []
+                    incomplete = [
+                        item for item in checklist
+                        if not (item.get("completed", False) or item.get("is_completed", False))
+                    ]
+                    if incomplete:
+                        self._send_json(
+                            {
+                                "detail": f"Cannot resolve issue {issue.get('key')}: all acceptance checklist items must be completed before moving to DONE ({len(incomplete)} incomplete)."
+                            },
+                            400,
+                        )
+                        return
+
                 issue["status"] = new_status
                 if new_status == "DONE":
                     issue["resolved_at"] = datetime.utcnow().isoformat() + "Z"
@@ -1075,9 +1196,16 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             old_assignee = issue.get("assignee")
             old_status = issue.get("status")
 
-            for field in ("title", "description", "priority", "tags", "sprint_id"):
+            for field in ("title", "description", "priority", "tags", "sprint_id", "issue_type"):
                 if field in body:
                     issue[field] = body[field]
+
+            if "story_points" in body:
+                sp = body["story_points"]
+                try:
+                    issue["story_points"] = float(sp) if sp is not None and str(sp).strip() != "" else None
+                except (ValueError, TypeError):
+                    pass
 
             if "status" in body and body["status"] != old_status:
                 new_status = body["status"]
@@ -1121,6 +1249,26 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
                     )
 
             self._send_json(issue, 200)
+            return
+
+        m_chk_patch = re.match(r"^/api/issues/([^/]+)/checklist/([^/]+)$", raw_path)
+        if m_chk_patch:
+            issue_id = m_chk_patch.group(1)
+            item_id = m_chk_patch.group(2)
+            issue = STATE.find_issue(issue_id)
+            if not issue:
+                self._send_json({"detail": "Issue not found"}, 404)
+                return
+            body = self._read_json()
+            for item in issue.get("checklist", []):
+                if item["id"] == item_id:
+                    if "text" in body and body["text"] is not None:
+                        item["text"] = str(body["text"]).strip()
+                    if "completed" in body and body["completed"] is not None:
+                        item["completed"] = bool(body["completed"])
+                    self._send_json(item, 200)
+                    return
+            self._send_json({"detail": "Checklist item not found"}, 404)
             return
 
         m_role = re.match(r"^/api/users/([^/]+)/role$", raw_path)
@@ -1205,6 +1353,21 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
             if issue and "attachments" in issue:
                 issue["attachments"] = [a for a in issue["attachments"] if a.get("id") != att_id]
             self._send_json({"status": "deleted"}, 200)
+            return
+
+        m_del_chk = re.match(r"^/api/issues/([^/]+)/checklist/([^/]+)$", raw_path)
+        if m_del_chk:
+            issue_id, item_id = m_del_chk.group(1), m_del_chk.group(2)
+            issue = STATE.find_issue(issue_id)
+            if not issue:
+                self._send_json({"detail": "Issue not found"}, 404)
+                return
+            initial_len = len(issue.get("checklist", []))
+            issue["checklist"] = [c for c in issue.get("checklist", []) if c.get("id") != item_id]
+            if len(issue["checklist"]) < initial_len:
+                self._send_json({"status": "ok", "deleted": True}, 200)
+            else:
+                self._send_json({"detail": "Checklist item not found"}, 404)
             return
 
         m_del_issue = re.match(r"^/api/issues/([^/]+)$", raw_path)

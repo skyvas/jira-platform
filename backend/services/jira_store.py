@@ -2,6 +2,7 @@
 from __future__ import annotations
 from datetime import datetime
 import hashlib
+import hmac
 import os
 import re
 import threading
@@ -9,8 +10,8 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from backend.models.domain import (
-    Attachment, Board, ColumnConfig, ColumnLane, Comment, Issue, IssueActivity,
-    IssueStatus, Notification, NotificationType, Priority, Project, Role,
+    Attachment, Board, ChecklistItem, ColumnConfig, ColumnLane, Comment, Issue, IssueActivity,
+    IssueStatus, IssueType, Notification, NotificationType, Priority, Project, Role,
     Sprint, SprintState, User
 )
 from backend.services.rank_service import LexoRank
@@ -20,13 +21,16 @@ from backend.services.state_machine import StateMachine
 def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
     if not salt:
         salt = os.urandom(16).hex()
-    pwd_hash = hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+    pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000).hex()
     return pwd_hash, salt
 
 
 def verify_password(password: str, pwd_hash: str, salt: str) -> bool:
     expected, _ = hash_password(password, salt)
-    return expected == pwd_hash
+    if hmac.compare_digest(expected, pwd_hash):
+        return True
+    legacy_hash = hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy_hash, pwd_hash)
 
 
 _UNSET = object()
@@ -135,9 +139,16 @@ class OrbitStore:
             description="Add WebSocket or SSE streaming for real-time synchronization between active users.",
             status=IssueStatus.IN_PROGRESS,
             priority=Priority.HIGH,
+            issue_type=IssueType.STORY,
+            story_points=5.0,
             assignee="alex",
             tags=["Backend", "Performance", "WebSocket"],
-            sprint_id=sprint1.id
+            sprint_id=sprint1.id,
+            checklist=[
+                {"text": "Setup WebSocket endpoint route", "completed": True},
+                {"text": "Broadcast card moves to active clients", "completed": True},
+                {"text": "Add heartbeat and reconnect backoff", "completed": False}
+            ]
         )
 
         i2 = self.create_issue(
@@ -146,9 +157,16 @@ class OrbitStore:
             description="Verify HttpOnly, SameSite=Lax flags and session token entropy across browser restarts.",
             status=IssueStatus.REVIEW,
             priority=Priority.CRITICAL,
+            issue_type=IssueType.BUG,
+            story_points=3.0,
             assignee="admin",
             tags=["Security", "Auth"],
-            sprint_id=sprint1.id
+            sprint_id=sprint1.id,
+            checklist=[
+                {"text": "Audit cookie flags in response headers", "completed": True},
+                {"text": "Verify token entropy at 256 bits", "completed": True},
+                {"text": "Add session expiration integration tests", "completed": False}
+            ]
         )
 
         i3 = self.create_issue(
@@ -157,9 +175,15 @@ class OrbitStore:
             description="Ensure backdrop filters and glowing accents render smoothly across dark mode themes.",
             status=IssueStatus.TODO,
             priority=Priority.MEDIUM,
+            issue_type=IssueType.TASK,
+            story_points=8.0,
             assignee="sam",
             tags=["UI/UX", "Frontend"],
-            sprint_id=sprint1.id
+            sprint_id=sprint1.id,
+            checklist=[
+                {"text": "Extract CSS custom property design tokens", "completed": False},
+                {"text": "Contrast audit for WCAG AA compliance", "completed": False}
+            ]
         )
 
         i4 = self.create_issue(
@@ -168,9 +192,15 @@ class OrbitStore:
             description="Completed architecture document and deterministic verification rules.",
             status=IssueStatus.DONE,
             priority=Priority.LOW,
+            issue_type=IssueType.TASK,
+            story_points=2.0,
             assignee="admin",
             tags=["Documentation"],
-            sprint_id=sprint1.id
+            sprint_id=sprint1.id,
+            checklist=[
+                {"text": "Draft architecture invariants", "completed": True},
+                {"text": "Configure verification gates", "completed": True}
+            ]
         )
 
         # Seed planned issue for Sprint 2
@@ -180,6 +210,8 @@ class OrbitStore:
             description="Visualize completed vs carryover points across historical sprints.",
             status=IssueStatus.TODO,
             priority=Priority.MEDIUM,
+            issue_type=IssueType.STORY,
+            story_points=5.0,
             assignee="alex",
             tags=["Metrics", "Agile"],
             sprint_id=sprint2.id
@@ -192,6 +224,8 @@ class OrbitStore:
             description="Enable SQLite caching on iOS and Android for offline card reordering.",
             status=IssueStatus.TODO,
             priority=Priority.HIGH,
+            issue_type=IssueType.EPIC,
+            story_points=13.0,
             assignee="alex",
             tags=["Mobile", "Offline"]
         )
@@ -466,9 +500,12 @@ class OrbitStore:
         description: str = "",
         status: Any = IssueStatus.TODO,
         priority: Priority = Priority.MEDIUM,
+        issue_type: Any = IssueType.TASK,
+        story_points: Optional[float] = None,
         assignee: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        sprint_id: Optional[str] = None
+        sprint_id: Optional[str] = None,
+        checklist: Optional[List[Any]] = None
     ) -> Issue:
         with self._lock:
             proj = self.projects.get(project_id)
@@ -495,6 +532,45 @@ class OrbitStore:
             # Determine status string / enum
             status_val = status.value if hasattr(status, "value") else str(status)
 
+            # Determine issue type
+            if isinstance(issue_type, IssueType):
+                type_val = issue_type
+            elif str(issue_type).upper() in IssueType.__members__:
+                type_val = IssueType(str(issue_type).upper())
+            else:
+                type_val = IssueType.TASK
+
+            # Parse story points
+            sp_val = None
+            if story_points is not None and str(story_points).strip() != "":
+                try:
+                    sp_val = float(story_points)
+                except (ValueError, TypeError):
+                    sp_val = None
+
+            # Parse checklist
+            checklist_items = []
+            if checklist:
+                for item in checklist:
+                    if isinstance(item, ChecklistItem):
+                        checklist_items.append(item)
+                    elif isinstance(item, dict):
+                        checklist_items.append(
+                            ChecklistItem(
+                                id=item.get("id") or f"chk-{uuid.uuid4().hex[:8]}",
+                                text=str(item.get("text", "")).strip(),
+                                completed=bool(item.get("completed", False))
+                            )
+                        )
+                    elif isinstance(item, str) and item.strip():
+                        checklist_items.append(
+                            ChecklistItem(
+                                id=f"chk-{uuid.uuid4().hex[:8]}",
+                                text=item.strip(),
+                                completed=False
+                            )
+                        )
+
             issue = Issue(
                 id=issue_id,
                 key=issue_key,
@@ -503,12 +579,15 @@ class OrbitStore:
                 description=description,
                 status=status_val,
                 priority=priority,
+                issue_type=type_val,
+                story_points=sp_val,
                 rank=new_rank,
                 assignee=assignee,
                 sprint_id=sprint_id,
                 tags=clean_tags,
                 attachments=[],
-                comments=[]
+                comments=[],
+                checklist=checklist_items
             )
             self.issues[issue_id] = issue
 
@@ -559,13 +638,15 @@ class OrbitStore:
         title: Any = _UNSET,
         description: Any = _UNSET,
         priority: Any = _UNSET,
+        issue_type: Any = _UNSET,
+        story_points: Any = _UNSET,
         assignee: Any = _UNSET,
         tags: Any = _UNSET,
         sprint_id: Any = _UNSET,
         updater_username: Optional[str] = None
     ) -> Issue:
         with self._lock:
-            issue = self.issues.get(issue_id)
+            issue = self.get_issue_by_id(issue_id)
             if not issue:
                 raise KeyError(f"Issue {issue_id} not found.")
 
@@ -577,6 +658,20 @@ class OrbitStore:
             if priority is not _UNSET:
                 if priority is not None:
                     issue.priority = priority
+            if issue_type is not _UNSET:
+                if issue_type is not None:
+                    if isinstance(issue_type, IssueType):
+                        issue.issue_type = issue_type
+                    elif str(issue_type).upper() in IssueType.__members__:
+                        issue.issue_type = IssueType(str(issue_type).upper())
+            if story_points is not _UNSET:
+                if story_points is None or (isinstance(story_points, str) and not story_points.strip()):
+                    issue.story_points = None
+                else:
+                    try:
+                        issue.story_points = float(story_points)
+                    except (ValueError, TypeError):
+                        pass
             if assignee is not _UNSET:
                 if assignee is None or (isinstance(assignee, str) and not assignee.strip()):
                     issue.assignee = None
@@ -686,6 +781,13 @@ class OrbitStore:
                 )
 
             return issue
+
+    def delete_issue(self, issue_id: str) -> bool:
+        with self._lock:
+            if issue_id not in self.issues:
+                return False
+            del self.issues[issue_id]
+            return True
 
     # ------------------ Attachments ------------------
 
@@ -805,10 +907,56 @@ class OrbitStore:
 
     def get_comments(self, issue_id: str) -> List[Comment]:
         with self._lock:
-            issue = self.issues.get(issue_id)
+            issue = self.get_issue_by_id(issue_id)
             if not issue:
                 raise KeyError(f"Issue {issue_id} not found.")
             return issue.comments
+
+    # ------------------ Checklist Methods ------------------
+
+    def add_checklist_item(self, issue_id: str, text: str) -> ChecklistItem:
+        with self._lock:
+            issue = self.get_issue_by_id(issue_id)
+            if not issue:
+                raise KeyError(f"Issue {issue_id} not found.")
+            item_id = f"chk-{uuid.uuid4().hex[:8]}"
+            item = ChecklistItem(id=item_id, text=text.strip(), completed=False)
+            issue.checklist.append(item)
+            issue.updated_at = datetime.utcnow()
+            return item
+
+    def update_checklist_item(
+        self,
+        issue_id: str,
+        item_id: str,
+        text: Any = _UNSET,
+        completed: Any = _UNSET
+    ) -> ChecklistItem:
+        with self._lock:
+            issue = self.get_issue_by_id(issue_id)
+            if not issue:
+                raise KeyError(f"Issue {issue_id} not found.")
+            for item in issue.checklist:
+                if item.id == item_id:
+                    if text is not _UNSET and text is not None:
+                        item.text = str(text).strip()
+                    if completed is not _UNSET and completed is not None:
+                        item.completed = bool(completed)
+                    issue.updated_at = datetime.utcnow()
+                    return item
+            raise KeyError(f"Checklist item {item_id} not found.")
+
+    def delete_checklist_item(self, issue_id: str, item_id: str) -> bool:
+        with self._lock:
+            issue = self.get_issue_by_id(issue_id)
+            if not issue:
+                raise KeyError(f"Issue {issue_id} not found.")
+            initial_len = len(issue.checklist)
+            issue.checklist = [item for item in issue.checklist if item.id != item_id]
+            if len(issue.checklist) < initial_len:
+                issue.updated_at = datetime.utcnow()
+                return True
+            return False
 
     # ------------------ Sprint Methods ------------------
 

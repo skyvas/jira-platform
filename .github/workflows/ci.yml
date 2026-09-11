@@ -25,6 +25,11 @@ jobs:
           --health-retries=5
 
     env:
+      HOST: ${{ vars.HOST || 'localhost' }}
+      PORT: ${{ vars.PORT || '5432' }}
+      NAME: ${{ vars.NAME || 'jira_platform' }}
+      USERNAME: ${{ vars.USERNAME || 'postgres' }}
+      PASSWORD: ${{ secrets.PASSWORD || 'postgres' }}
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jira_platform
       POSTGRES_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jira_platform
       POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/jira_platform
@@ -70,9 +75,9 @@ jobs:
           raise SystemExit('server did not become ready')
           PY
 
-      - name: Run Playwright smoke tests
+      - name: Run test suite
         run: |
-          pytest -q tests/test_playwright_smoke.py
+          pytest tests/ -v
 
       - name: Show server log on failure
         if: failure()
