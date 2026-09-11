@@ -71,6 +71,33 @@ def test_postgres_repository_assembles_from_discrete_github_vars(monkeypatch):
     assert repo.is_postgres_enabled() is True
 
 
+def test_postgres_repository_assembles_from_db_prefixed_vars_with_web_port(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_URL", raising=False)
+    monkeypatch.delenv("HOST", raising=False)
+    monkeypatch.delenv("NAME", raising=False)
+    monkeypatch.delenv("USERNAME", raising=False)
+    monkeypatch.delenv("PASSWORD", raising=False)
+
+    # Cloud dashboard environment variables
+    monkeypatch.setenv("DB_HOST", "aws-postgres.cloud.net")
+    monkeypatch.setenv("DB_NAME", "jira_production")
+    monkeypatch.setenv("DB_USERNAME", "db_master")
+    monkeypatch.setenv("DB_PASSWORD", "Complex&Pass!99")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("PORT", "8000")  # Web server HTTP port
+
+    monkeypatch.setattr(postgres_repository.psycopg2, "connect", lambda url: FakeConnection())
+
+    expected_url = "postgresql://db_master:Complex%26Pass%2199@aws-postgres.cloud.net:5432/jira_production"
+    assert get_database_url() == expected_url
+
+    repo = PostgresRepository()
+    assert repo.database_url == expected_url
+    assert repo.is_postgres_enabled() is True
+
+
 def test_postgres_snapshot_roundtrips_story_points_type_and_checklist(monkeypatch):
     captured_payloads = []
 

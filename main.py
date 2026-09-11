@@ -1390,7 +1390,7 @@ class WasmerEdgeHandler(SimpleHTTPRequestHandler):
 
 def start():
     port = int(os.environ.get("PORT", 8000))
-    host = os.environ.get("HOST", "0.0.0.0")
+    host = os.environ.get("SERVER_HOST") or os.environ.get("WEB_HOST") or "0.0.0.0"
 
     if HAS_FASTAPI:
         print(f"Starting Orbit with Uvicorn ASGI on http://{host}:{port}")

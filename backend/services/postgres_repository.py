@@ -46,47 +46,47 @@ def get_database_url() -> str:
     if value:
         return value
 
-    # Check discrete connection variables
+    # Check discrete connection variables (prioritize DB_* and POSTGRES_* over generic PORT / USERNAME)
     host = (
-        os.getenv("HOST")
-        or os.getenv("DB_HOST")
+        os.getenv("DB_HOST")
         or os.getenv("POSTGRES_HOST")
         or os.getenv("PGHOST")
+        or os.getenv("HOST")
         or ""
     ).strip()
 
     name = (
-        os.getenv("NAME")
-        or os.getenv("DB_NAME")
+        os.getenv("DB_NAME")
         or os.getenv("POSTGRES_DB")
         or os.getenv("PGDATABASE")
         or os.getenv("POSTGRES_NAME")
+        or os.getenv("NAME")
         or ""
     ).strip()
 
     username = (
-        os.getenv("USERNAME")
+        os.getenv("DB_USERNAME")
         or os.getenv("DB_USER")
         or os.getenv("POSTGRES_USER")
         or os.getenv("PGUSER")
-        or os.getenv("DB_USERNAME")
         or os.getenv("POSTGRES_USERNAME")
+        or os.getenv("USERNAME")
         or ""
     ).strip()
 
     password = (
-        os.getenv("PASSWORD")
-        or os.getenv("DB_PASSWORD")
+        os.getenv("DB_PASSWORD")
         or os.getenv("POSTGRES_PASSWORD")
         or os.getenv("PGPASSWORD")
+        or os.getenv("PASSWORD")
         or ""
     ).strip()
 
     port = (
-        os.getenv("PORT")
-        or os.getenv("DB_PORT")
+        os.getenv("DB_PORT")
         or os.getenv("POSTGRES_PORT")
         or os.getenv("PGPORT")
+        or (os.getenv("PORT") if not os.getenv("DB_PORT") and os.getenv("PORT", "").isdigit() and int(os.getenv("PORT", "0")) in (5432, 5433, 6432) else "")
         or "5432"
     ).strip()
 
